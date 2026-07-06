@@ -54,6 +54,7 @@ const serverPkg = JSON.parse(fs.readFileSync(path.join(root, 'server', 'package.
 delete serverPkg.devDependencies;
 serverPkg.scripts = { start: serverPkg.scripts.start };
 fs.writeFileSync(path.join(deploy, 'server', 'package.json'), JSON.stringify(serverPkg, null, 2));
+fs.copyFileSync(path.join(root, 'server', '.env.example'), path.join(deploy, 'server', '.env.example'));
 
 // 4. התקנת תלויות production בתוך החבילה (כולן JS טהור — עובדות בכל מכונה עם Node)
 run('npm install --omit=dev --no-audit --no-fund --ignore-scripts', path.join(deploy, 'server'));
@@ -87,11 +88,12 @@ fs.writeFileSync(path.join(deploy, 'README-DEPLOY.txt'),
 2. הפעלה ידנית: לחיצה כפולה על start.bat (ברירת מחדל: http://localhost:3000)
 3. הפעלה כשירות Windows (מומלץ): הניחו nssm.exe בתיקייה והריצו install-service.bat כמנהל.
 
-קונפיגורציה: server/config.json (נוצר אוטומטית בהרצה ראשונה)
-  port       - פורט ההאזנה (ברירת מחדל 3000)
-  dbPath     - נתיב קובץ מסד הנתונים
-  backupDir  - תיקיית גיבויים (גיבוי לילי אוטומטי, נשמרים 14 אחרונים)
-  backupHour - שעת הגיבוי הלילי (ברירת מחדל 02:00)
+קונפיגורציה: server/.env (ראו server/.env.example; נוצר אוטומטית בהרצה ראשונה)
+  PORT        - פורט ההאזנה (ברירת מחדל 3000)
+  DB_PATH     - נתיב קובץ מסד הנתונים
+  BACKUP_DIR  - תיקיית גיבויים (גיבוי לילי אוטומטי, נשמרים 14 אחרונים)
+  BACKUP_HOUR - שעת הגיבוי הלילי (ברירת מחדל 02:00)
+  JWT_SECRET  - נוצר אוטומטית בהרצה ראשונה
 
 משתמש ראשוני: admin / admin123 — חובה להחליף סיסמא בכניסה הראשונה!
 

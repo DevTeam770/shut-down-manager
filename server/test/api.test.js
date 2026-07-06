@@ -9,7 +9,7 @@ import os from 'node:os';
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shutdown-test-'));
 process.env.DB_PATH = path.join(tmpDir, 'test.db');
 process.env.PORT = '0';
-process.env.CONFIG_PATH = path.join(tmpDir, 'config.json');
+process.env.ENV_FILE = path.join(tmpDir, '.env');
 
 const { app } = await import('../src/index.js');
 
