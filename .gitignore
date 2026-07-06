@@ -1,0 +1,15 @@
+# dependencies
+node_modules/
+
+# builds
+client/dist/
+dist-deploy/
+
+# נתונים מקומיים — לעולם לא לריפו
+server/data/
+server/logs/
+server/config.json
+
+# misc
+*.tmp.mjs
+.env

@@ -1,0 +1,202 @@
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { api } from '../api/client.js';
+import { useSocket } from '../context/SocketContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
+import { fmtTime } from '../utils/format.js';
+
+// חדר הצ'אט של השבתה:
+// - היסטוריה נטענת ב-REST (50 אחרונות + "טען עוד" לגלילה אחורה)
+// - הודעות חדשות ב-Socket.IO
+// - סנכרון אחרי ניתוק: ב-reconnect מושכים כל מה שאחרי ההודעה האחרונה שראינו
+// - הקלדה, נוכחות, קיבוץ הודעות רצופות, חיווי נמסר
+export default function Chat({ shutdownId, chatOpen }) {
+  const { socket, connected } = useSocket() || {};
+  const { user } = useAuth();
+  const [messages, setMessages] = useState([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [presence, setPresence] = useState([]);
+  const [typing, setTyping] = useState(null);
+  const [text, setText] = useState('');
+  const [error, setError] = useState('');
+  const listRef = useRef(null);
+  const lastIdRef = useRef(0);
+  const typingTimer = useRef(null);
+  const stickToBottom = useRef(true);
+
+  const scrollToBottom = useCallback(() => {
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  const appendMessages = useCallback((newMsgs) => {
+    if (!newMsgs.length) return;
+    setMessages(prev => {
+      const ids = new Set(prev.map(m => m.id));
+      const merged = [...prev, ...newMsgs.filter(m => !ids.has(m.id))];
+      merged.sort((a, b) => a.id - b.id);
+      return merged;
+    });
+    lastIdRef.current = Math.max(lastIdRef.current, ...newMsgs.map(m => m.id));
+  }, []);
+
+  // טעינת היסטוריה ראשונית
+  useEffect(() => {
+    let alive = true;
+    api.get(`/api/shutdowns/${shutdownId}/messages`).then(d => {
+      if (!alive) return;
+      setMessages(d.messages);
+      setHasMore(d.messages.length >= 50);
+      if (d.messages.length) lastIdRef.current = d.messages[d.messages.length - 1].id;
+      setTimeout(scrollToBottom, 30);
+    }).catch(e => setError(e.message));
+    return () => { alive = false; };
+  }, [shutdownId]);
+
+  // הצטרפות לחדר + האזנות
+  useEffect(() => {
+    if (!socket) return;
+    const join = () => {
+      socket.emit('chat:join', shutdownId, (res) => {
+        if (res?.error) setError(res.error);
+      });
+      // סנכרון הודעות שפוספסו בזמן ניתוק
+      if (lastIdRef.current > 0) {
+        api.get(`/api/shutdowns/${shutdownId}/messages?after_id=${lastIdRef.current}`)
+          .then(d => appendMessages(d.messages))
+          .catch(() => {});
+      }
+    };
+    join();
+    socket.on('connect', join); // reconnect ⇦ הצטרפות מחדש + סנכרון
+
+    const onMessage = (m) => {
+      if (m.shutdown_id !== Number(shutdownId)) return;
+      appendMessages([m]);
+      setTyping(null);
+    };
+    const onPresence = (users) => setPresence(users);
+    const onTyping = ({ display_name }) => {
+      setTyping(display_name);
+      clearTimeout(typingTimer.current);
+      typingTimer.current = setTimeout(() => setTyping(null), 2500);
+    };
+    socket.on('chat:message', onMessage);
+    socket.on('chat:presence', onPresence);
+    socket.on('chat:typing', onTyping);
+
+    return () => {
+      socket.emit('chat:leave', shutdownId);
+      socket.off('connect', join);
+      socket.off('chat:message', onMessage);
+      socket.off('chat:presence', onPresence);
+      socket.off('chat:typing', onTyping);
+    };
+  }, [socket, shutdownId, appendMessages]);
+
+  // גלילה אוטומטית רק אם המשתמש בתחתית
+  useEffect(() => {
+    if (stickToBottom.current) scrollToBottom();
+  }, [messages, scrollToBottom]);
+
+  const onScroll = () => {
+    const el = listRef.current;
+    if (!el) return;
+    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  };
+
+  const loadOlder = async () => {
+    const oldest = messages[0];
+    if (!oldest) return;
+    const el = listRef.current;
+    const prevHeight = el?.scrollHeight || 0;
+    const d = await api.get(`/api/shutdowns/${shutdownId}/messages?before_id=${oldest.id}`);
+    setMessages(prev => {
+      const ids = new Set(prev.map(m => m.id));
+      return [...d.messages.filter(m => !ids.has(m.id)), ...prev];
+    });
+    setHasMore(d.messages.length >= 50);
+    // שמירת מיקום הגלילה
+    requestAnimationFrame(() => {
+      if (el) el.scrollTop = el.scrollHeight - prevHeight;
+    });
+  };
+
+  const send = (e) => {
+    e.preventDefault();
+    const body = text.trim();
+    if (!body || !socket) return;
+    setText('');
+    socket.emit('chat:send', { shutdownId: Number(shutdownId), body }, (res) => {
+      if (res?.error) setError(res.error);
+    });
+  };
+
+  const onType = (e) => {
+    setText(e.target.value);
+    socket?.emit('chat:typing', Number(shutdownId));
+  };
+
+  // קיבוץ הודעות רצופות מאותו כותב (בטווח 3 דקות)
+  const grouped = messages.map((m, i) => {
+    const prev = messages[i - 1];
+    const sameAuthor = prev && prev.user_id === m.user_id && prev.type === 'text' && m.type === 'text';
+    const closeTime = prev && (new Date(m.created_at.replace(' ', 'T') + 'Z') - new Date(prev.created_at.replace(' ', 'T') + 'Z')) < 3 * 60 * 1000;
+    return { ...m, showHeader: !(sameAuthor && closeTime) };
+  });
+
+  return (
+    <div className="chat">
+      <div className="chat-header">
+        <strong>💬 חדר דיון</strong>
+        <span className="presence">
+          {presence.length > 0 && `מחוברים: ${presence.map(p => p.display_name).join(', ')}`}
+        </span>
+        {!connected && <span className="badge badge-orange">מנותק</span>}
+      </div>
+
+      <div className="chat-messages" ref={listRef} onScroll={onScroll}>
+        {hasMore && (
+          <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'center', marginBottom: 8 }} onClick={loadOlder}>
+            ↑ טעינת הודעות קודמות
+          </button>
+        )}
+        {grouped.map(m => (
+          m.type === 'system' ? (
+            <div className="msg system" key={m.id}>
+              <div className="bubble">{m.body}</div>
+            </div>
+          ) : (
+            <div className={`msg ${m.user_id === user.id ? 'mine' : 'theirs'}`} key={m.id}>
+              {m.showHeader && (
+                <div className="meta">
+                  {m.user_id !== user.id && <strong>{m.display_name} · </strong>}
+                  {fmtTime(m.created_at)}
+                </div>
+              )}
+              <div className="bubble">{m.body}</div>
+            </div>
+          )
+        ))}
+        {messages.length === 0 && <p className="muted" style={{ textAlign: 'center' }}>עדיין אין הודעות — פתחו את הדיון 🙂</p>}
+      </div>
+
+      <div className="typing">{typing ? `${typing} מקליד/ה...` : ''}</div>
+
+      {chatOpen ? (
+        <form className="chat-input" onSubmit={send}>
+          <input
+            className="input"
+            value={text}
+            onChange={onType}
+            placeholder="כתיבת הודעה..."
+            maxLength={2000}
+          />
+          <button className="btn btn-primary" disabled={!text.trim() || !connected}>שליחה</button>
+        </form>
+      ) : (
+        <div className="chat-closed">🔒 ההשבתה הסתיימה — הצ'אט סגור לכתיבה (ההיסטוריה נשמרת)</div>
+      )}
+      {error && <div className="error-msg" style={{ padding: '0 12px 8px' }}>{error}</div>}
+    </div>
+  );
+}
