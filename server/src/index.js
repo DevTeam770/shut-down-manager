@@ -12,6 +12,7 @@ import config from './config.js';
 import logger from './logger.js';
 import db, { backupDatabase } from './db/db.js';
 import { setIo } from './services/events.js';
+import { minuteTick } from './services/scheduler.js';
 import setupSockets from './sockets/chat.js';
 
 import authRoutes from './routes/auth.js';
@@ -22,6 +23,7 @@ import fileRoutes from './routes/files.js';
 import notificationRoutes from './routes/notifications.js';
 import calendarRoutes from './routes/calendar.js';
 import statsRoutes from './routes/stats.js';
+import auditRoutes from './routes/audit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -55,6 +57,7 @@ app.use('/api/shutdowns', shutdownRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/audit', auditRoutes);
 
 // בריאות המערכת — לניטור פנימי
 const startedAt = Date.now();
@@ -81,13 +84,8 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'שגיאת שרת פנימית' });
 });
 
-// גיבוי DB לילי
-setInterval(() => {
-  const now = new Date();
-  if (now.getHours() === config.backupHour && now.getMinutes() === 0) {
-    try { backupDatabase(); } catch (e) { logger.error(e, 'גיבוי נכשל'); }
-  }
-}, 60 * 1000);
+// לולאת דקה: גיבוי לילי, תזכורות יומיות, מעברי סטטוס אוטומטיים
+setInterval(() => minuteTick(backupDatabase), 60 * 1000);
 
 server.listen(config.port, () => {
   logger.info(`מערכת ניהול השבתות פועלת: http://localhost:${config.port}`);

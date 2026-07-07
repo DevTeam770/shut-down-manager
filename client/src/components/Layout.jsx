@@ -6,6 +6,7 @@ import { useNotify } from '../context/NotifyContext.jsx';
 import { api } from '../api/client.js';
 import { fmtDateTime } from '../utils/format.js';
 import RespondButtons from './RespondButtons.jsx';
+import ActiveBanner from './ActiveBanner.jsx';
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -50,6 +51,7 @@ export default function Layout() {
   return (
     <div className="layout">
       {connected === false && <div className="offline-banner">⚠️ החיבור נותק — מתחבר מחדש...</div>}
+      <ActiveBanner />
       <header className="topbar">
         <div className="brand">🔌 ניהול השבתות</div>
         <nav>

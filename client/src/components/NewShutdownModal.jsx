@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import Modal from './Modal.jsx';
@@ -12,12 +12,22 @@ export default function NewShutdownModal({ groups, onClose, onCreated }) {
     description: '',
     proposed_date: '',
     start_time: '',
-    end_time: ''
+    end_time: '',
+    respond_by: ''
   });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [conflicts, setConflicts] = useState([]);
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  // בדיקת התנגשויות: השבתה אחרת באותו יום שמשפיעה על אותם אנשים
+  useEffect(() => {
+    if (!form.proposed_date || !form.group_id) { setConflicts([]); return; }
+    api.get(`/api/shutdowns/conflicts?date=${form.proposed_date}&group_id=${form.group_id}`)
+      .then(d => setConflicts(d.conflicts))
+      .catch(() => setConflicts([]));
+  }, [form.proposed_date, form.group_id]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -55,6 +65,19 @@ export default function NewShutdownModal({ groups, onClose, onCreated }) {
         <label className="field">
           <span>תאריך מוצע</span>
           <input type="date" className="input" value={form.proposed_date} onChange={set('proposed_date')} required />
+        </label>
+        {conflicts.length > 0 && (
+          <div className="error-msg" style={{ background: 'var(--orange-soft)', color: 'var(--orange)', padding: '8px 12px', borderRadius: 8 }}>
+            ⚠️ באותו יום יש כבר השבתה שנוגעת לאותם אנשים:
+            {conflicts.map(c => (
+              <div key={c.id}>• "{c.title}" ({c.group_name}) — {c.shared_members} חברים משותפים</div>
+            ))}
+            אפשר להמשיך, אבל שווה לבדוק.
+          </div>
+        )}
+        <label className="field">
+          <span>להגיב עד (דד-ליין לאישורים, רשות)</span>
+          <input type="date" className="input" value={form.respond_by} onChange={set('respond_by')} max={form.proposed_date || undefined} />
         </label>
         <div className="grid-2">
           <label className="field">

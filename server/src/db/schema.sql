@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   display_name TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+  token_version INTEGER NOT NULL DEFAULT 0,  -- עולה באיפוס סיסמא ⇦ מנתק את כל ההתחברויות
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS shutdowns (
   status TEXT NOT NULL DEFAULT 'proposed'
     CHECK (status IN ('proposed', 'confirmed', 'in_progress', 'completed', 'cancelled')),
   is_final_date INTEGER NOT NULL DEFAULT 0,
+  respond_by TEXT DEFAULT '',           -- דד-ליין לתגובות YYYY-MM-DD (רשות)
   created_by INTEGER NOT NULL REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))

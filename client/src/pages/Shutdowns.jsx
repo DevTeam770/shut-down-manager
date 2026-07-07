@@ -8,6 +8,7 @@ export default function Shutdowns() {
   const [shutdowns, setShutdowns] = useState(null);
   const [groups, setGroups] = useState([]);
   const [filter, setFilter] = useState('active');
+  const [showArchive, setShowArchive] = useState(false);
   const [showNew, setShowNew] = useState(false);
 
   const load = () => {
@@ -18,11 +19,17 @@ export default function Shutdowns() {
 
   if (!shutdowns) return <div className="skeleton" style={{ height: 300 }} />;
 
+  // ארכוב: "הסתיימו" מציג כברירת מחדל רק 3 חודשים אחרונים
+  const archiveCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const isDone = (s) => ['completed', 'cancelled'].includes(s.status);
   const filtered = shutdowns.filter(s =>
-    filter === 'active' ? !['completed', 'cancelled'].includes(s.status)
-      : filter === 'done' ? ['completed', 'cancelled'].includes(s.status)
+    filter === 'active' ? !isDone(s)
+      : filter === 'done' ? isDone(s) && (showArchive || s.proposed_date >= archiveCutoff)
         : true
   );
+  const archivedCount = filter === 'done' && !showArchive
+    ? shutdowns.filter(s => isDone(s) && s.proposed_date < archiveCutoff).length
+    : 0;
 
   return (
     <>
@@ -34,6 +41,12 @@ export default function Shutdowns() {
             <option value="done">הסתיימו</option>
             <option value="all">הכול</option>
           </select>
+          {filter === 'done' && (
+            <label className="row" style={{ gap: 6 }}>
+              <input type="checkbox" checked={showArchive} onChange={e => setShowArchive(e.target.checked)} />
+              כולל ארכיון{archivedCount > 0 && ` (${archivedCount})`}
+            </label>
+          )}
           {groups.length > 0 && (
             <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ השבתה חדשה</button>
           )}

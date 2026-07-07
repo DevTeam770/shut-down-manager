@@ -16,6 +16,17 @@ db.exec('PRAGMA journal_mode = WAL;');
 const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 db.exec(schema);
 
+// מיגרציות ל-DB קיים — הוספת עמודות שנוספו אחרי גרסה 1.0
+function ensureColumn(table, column, ddl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some(c => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+    logger.info(`מיגרציה: נוספה עמודה ${table}.${column}`);
+  }
+}
+ensureColumn('users', 'token_version', `token_version INTEGER NOT NULL DEFAULT 0`);
+ensureColumn('shutdowns', 'respond_by', `respond_by TEXT DEFAULT ''`);
+
 // seed: משתמש admin ראשוני אם אין אף משתמש
 const userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
 if (userCount === 0) {

@@ -193,6 +193,17 @@ label.field > span { display: block; font-weight: 600; font-size: .88rem; margin
   padding: 6px; font-weight: 600; font-size: .9rem;
 }
 
+/* באנר השבתה פעילה כרגע */
+.active-banner {
+  background: var(--red); color: #fff; text-align: center;
+  padding: 7px 12px; font-size: .92rem;
+  display: flex; flex-direction: column; gap: 2px;
+  animation: bannerPulse 2.5s ease-in-out infinite;
+}
+.active-banner span { cursor: pointer; }
+.active-banner span:hover { text-decoration: underline; }
+@keyframes bannerPulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(.86); } }
+
 /* ============ צ'אט ============ */
 .chat {
   display: flex; flex-direction: column;

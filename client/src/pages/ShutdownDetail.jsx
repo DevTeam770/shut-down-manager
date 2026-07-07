@@ -99,6 +99,11 @@ export default function ShutdownDetail() {
           {s.is_final_date ? '🟢 תאריך סופי' : '🟠 תאריך מוצע'}: {fmtDate(s.proposed_date)}
           {s.start_time && ` · ${s.start_time}${s.end_time ? `–${s.end_time}` : ''}`}
         </span>
+        {s.respond_by && !s.is_final_date && canRespond && (
+          <span className={`badge ${s.respond_by < new Date().toISOString().slice(0, 10) ? 'badge-red' : 'badge-blue'}`}>
+            ⏳ להגיב עד {fmtDate(s.respond_by)}{s.respond_by < new Date().toISOString().slice(0, 10) ? ' — הדד-ליין עבר!' : ''}
+          </span>
+        )}
         <span className="muted">קבוצה: <Link to={`/groups/${s.group_id}`}>{s.group_name}</Link> · נפתחה ע"י {s.created_by_name}</span>
         <a className="btn btn-ghost btn-sm" href={`/api/calendar/shutdowns/${s.id}/ics`} download>📅 הוספה ל-Outlook</a>
       </div>

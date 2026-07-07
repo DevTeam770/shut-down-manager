@@ -17,10 +17,7 @@ export default function setupSockets(io) {
   io.use((socket, next) => {
     try {
       const cookies = parseCookies(socket.handshake.headers.cookie);
-      const payload = verifyToken(cookies.token);
-      const user = db.prepare('SELECT id, username, display_name, role FROM users WHERE id = ?').get(payload.id);
-      if (!user) return next(new Error('unauthorized'));
-      socket.user = user;
+      socket.user = verifyToken(cookies.token); // כולל בדיקת revocation
       next();
     } catch {
       next(new Error('unauthorized'));

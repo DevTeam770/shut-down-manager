@@ -35,6 +35,7 @@ const config = {
   jwtExpiresDays: num(process.env.JWT_EXPIRES_DAYS, 7),
   logDir: process.env.LOG_DIR || path.join(rootDir, 'logs'),
   backupHour: num(process.env.BACKUP_HOUR, 2), // שעת גיבוי לילי
+  reminderHour: num(process.env.REMINDER_HOUR, 9), // שעת התזכורת היומית למי שטרם הגיב
   uploadDir: process.env.UPLOAD_DIR || path.join(rootDir, 'data', 'uploads'),
   maxFileMb: num(process.env.MAX_FILE_MB, 25),
   maxFilesPerShutdown: num(process.env.MAX_FILES_PER_SHUTDOWN, 20)

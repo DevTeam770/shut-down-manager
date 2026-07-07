@@ -173,6 +173,97 @@ describe('קיבוע תאריך ומעברי סטטוס', () => {
   });
 });
 
+describe('שדרוגים: דד-ליין, התנגשויות, active-now, revocation, audit, סקדולר', () => {
+  let sid2;
+
+  it('יצירת השבתה עם דד-ליין לתגובה', async () => {
+    const r = await manager.post('/api/shutdowns').send({
+      group_id: groupId, title: 'השבתה עם דד-ליין', proposed_date: '2027-01-20', respond_by: '2027-01-15'
+    }).expect(201);
+    sid2 = r.body.shutdown.id;
+    expect(r.body.shutdown.respond_by).toBe('2027-01-15');
+  });
+
+  it('זיהוי התנגשות: השבתה אחרת באותו יום עם חברים משותפים', async () => {
+    const r = await manager.get(`/api/shutdowns/conflicts?date=2027-01-20&group_id=${groupId}`).expect(200);
+    expect(r.body.conflicts.length).toBe(1);
+    expect(r.body.conflicts[0].shared_members).toBeGreaterThan(0);
+    // יום פנוי — אין התנגשויות
+    const clean = await manager.get(`/api/shutdowns/conflicts?date=2027-06-06&group_id=${groupId}`).expect(200);
+    expect(clean.body.conflicts.length).toBe(0);
+  });
+
+  it('active-now מציג השבתה בביצוע לחבר קבוצה בלבד', async () => {
+    // מקבעים ומריצים את ההשבתה
+    await member.post(`/api/shutdowns/${sid2}/respond`).send({ response: 'approved' });
+    await manager.post(`/api/shutdowns/${sid2}/respond`).send({ response: 'approved' });
+    await manager.patch(`/api/shutdowns/${sid2}`).send({ is_final_date: true }).expect(200);
+    await manager.patch(`/api/shutdowns/${sid2}`).send({ status: 'in_progress' }).expect(200);
+
+    const mine = await member.get('/api/shutdowns/active-now').expect(200);
+    expect(mine.body.active.some(a => a.id === sid2)).toBe(true);
+    const foreign = await outsider.get('/api/shutdowns/active-now').expect(200);
+    expect(foreign.body.active.some(a => a.id === sid2)).toBe(false);
+    await manager.patch(`/api/shutdowns/${sid2}`).send({ status: 'completed' }).expect(200);
+  });
+
+  it('תזכורת נשלחת רק למי שטרם הגיב, ופעם אחת ביום', async () => {
+    const { runReminders } = await import('../src/services/scheduler.js');
+    const db = (await import('../src/db/db.js')).default;
+    // השבתה עתידית בלי תגובה של dana (memberId)
+    const r = await manager.post('/api/shutdowns').send({
+      group_id: groupId, title: 'השבתה לתזכורת', proposed_date: '2027-03-03'
+    }).expect(201);
+    db.prepare(`DELETE FROM notifications WHERE kind = 'reminder'`).run();
+
+    runReminders();
+    const first = db.prepare(
+      `SELECT COUNT(*) AS c FROM notifications WHERE kind = 'reminder' AND user_id = ? AND shutdown_id = ?`
+    ).get(memberId, r.body.shutdown.id).c;
+    expect(first).toBe(1);
+
+    runReminders(); // ריצה שנייה באותו יום — לא שולחת שוב
+    const second = db.prepare(
+      `SELECT COUNT(*) AS c FROM notifications WHERE kind = 'reminder' AND user_id = ? AND shutdown_id = ?`
+    ).get(memberId, r.body.shutdown.id).c;
+    expect(second).toBe(1);
+  });
+
+  it('מעבר אוטומטי ל"בביצוע" כשמגיעה שעת ההתחלה', async () => {
+    const { runAutoTransitions } = await import('../src/services/scheduler.js');
+    const db = (await import('../src/db/db.js')).default;
+    const today = new Date().toLocaleDateString('sv'); // YYYY-MM-DD מקומי
+    const r = await manager.post('/api/shutdowns').send({
+      group_id: groupId, title: 'השבתה אוטומטית', proposed_date: today, start_time: '00:00', end_time: '23:59'
+    }).expect(201);
+    db.prepare(`UPDATE shutdowns SET status = 'confirmed', is_final_date = 1 WHERE id = ?`).run(r.body.shutdown.id);
+
+    runAutoTransitions();
+    const after = db.prepare('SELECT status FROM shutdowns WHERE id = ?').get(r.body.shutdown.id);
+    expect(after.status).toBe('in_progress');
+    db.prepare(`UPDATE shutdowns SET status = 'completed' WHERE id = ?`).run(r.body.shutdown.id);
+  });
+
+  it('איפוס סיסמא ע"י admin מנתק מיידית התחברות קיימת (revocation)', async () => {
+    const agent = request.agent(app);
+    await agent.post('/api/auth/register')
+      .send({ username: 'revoked1', password: 'pass123', display_name: 'מנותק' }).expect(201);
+    await agent.get('/api/auth/me').expect(200); // מחובר
+
+    const users = await admin.get('/api/users?q=revoked1').expect(200);
+    await admin.patch(`/api/users/${users.body.users[0].id}`).send({ password: 'newpass1' }).expect(200);
+
+    await agent.get('/api/auth/me').expect(401); // ה-cookie הישן כבר לא תקף
+  });
+
+  it('יומן פעולות נגיש ל-admin בלבד ומכיל רשומות', async () => {
+    await member.get('/api/audit').expect(403);
+    const r = await admin.get('/api/audit').expect(200);
+    expect(r.body.entries.length).toBeGreaterThan(5);
+    expect(r.body.entries.some(e => e.action === 'create_shutdown')).toBe(true);
+  });
+});
+
 describe('קבצים מצורפים', () => {
   let fileId;
   const pdfContent = Buffer.from('%PDF-1.4 fake test file תוכן בעברית');

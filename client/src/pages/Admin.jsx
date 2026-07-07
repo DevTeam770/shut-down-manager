@@ -4,6 +4,14 @@ import { useAuth } from '../context/AuthContext.jsx';
 import Modal from '../components/Modal.jsx';
 import { fmtDateTime } from '../utils/format.js';
 
+const ACTION_LABELS = {
+  register: 'הרשמה', create_user: 'יצירת משתמש', update_user: 'עדכון משתמש', delete_user: 'מחיקת משתמש',
+  change_password: 'שינוי סיסמא', create_group: 'יצירת קבוצה', delete_group: 'מחיקת קבוצה',
+  add_member: 'הוספת חבר', remove_member: 'הסרת חבר', create_shutdown: 'יצירת השבתה',
+  update_shutdown: 'עדכון השבתה', respond: 'תגובה להשבתה', adopt_date: 'אימוץ תאריך חלופי',
+  resolve_condition: 'סימון תנאי כנפתר', review: 'סיכום השבתה', upload_files: 'העלאת קבצים', delete_file: 'מחיקת קובץ'
+};
+
 // ניהול משתמשים — למנהלי מערכת (צוות פיתוח) בלבד
 export default function Admin() {
   const { user: me } = useAuth();
@@ -11,9 +19,17 @@ export default function Admin() {
   const [modal, setModal] = useState(null); // { mode: 'new' } | { mode: 'edit', user }
   const [form, setForm] = useState({});
   const [error, setError] = useState('');
+  const [tab, setTab] = useState('users');
+  const [auditEntries, setAuditEntries] = useState(null);
 
   const load = () => api.get('/api/users').then(d => setUsers(d.users)).catch(() => setUsers([]));
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (tab === 'audit' && !auditEntries) {
+      api.get('/api/audit').then(d => setAuditEntries(d.entries)).catch(() => setAuditEntries([]));
+    }
+  }, [tab]);
 
   const openNew = () => {
     setForm({ username: '', password: '', display_name: '', role: 'user' });
@@ -59,10 +75,42 @@ export default function Admin() {
   return (
     <>
       <div className="row spread" style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: 0 }}>ניהול משתמשים</h1>
-        <button className="btn btn-primary" onClick={openNew}>+ משתמש חדש</button>
+        <div className="row">
+          <h1 style={{ margin: 0 }}>ניהול</h1>
+          <button className={`btn btn-sm ${tab === 'users' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('users')}>משתמשים</button>
+          <button className={`btn btn-sm ${tab === 'audit' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('audit')}>יומן פעולות</button>
+        </div>
+        {tab === 'users' && <button className="btn btn-primary" onClick={openNew}>+ משתמש חדש</button>}
       </div>
 
+      {tab === 'audit' && (
+        <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
+          {!auditEntries ? <div className="skeleton" style={{ height: 200, margin: 16 }} /> : (
+            <table className="table">
+              <thead>
+                <tr><th>מתי</th><th>מי</th><th>פעולה</th><th>פרטים</th></tr>
+              </thead>
+              <tbody>
+                {auditEntries.length === 0 && (
+                  <tr><td colSpan={4} className="muted" style={{ textAlign: 'center', padding: 24 }}>אין רשומות</td></tr>
+                )}
+                {auditEntries.map(e => (
+                  <tr key={e.id}>
+                    <td className="muted" style={{ whiteSpace: 'nowrap' }}>{fmtDateTime(e.created_at)}</td>
+                    <td style={{ fontWeight: 600 }}>{e.user_name}</td>
+                    <td><span className="badge badge-gray">{ACTION_LABELS[e.action] || e.action}</span></td>
+                    <td className="muted" style={{ maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.details}>
+                      {e.entity}#{e.entity_id} {e.details}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {tab === 'users' && (
       <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
         <table className="table">
           <thead>
@@ -96,6 +144,7 @@ export default function Admin() {
           </tbody>
         </table>
       </div>
+      )}
 
       {modal && (
         <Modal title={modal.mode === 'new' ? 'משתמש חדש' : `עריכת ${modal.user.display_name}`} onClose={() => setModal(null)}>

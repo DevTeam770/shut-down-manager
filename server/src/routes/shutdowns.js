@@ -27,6 +27,39 @@ function loadShutdown(req, res) {
   return shutdown;
 }
 
+// השבתות בביצוע כרגע (לבאנר האתר) — חייב להיות לפני '/:id'
+router.get('/active-now', (req, res) => {
+  const base = `
+    SELECT s.id, s.title, s.start_time, s.end_time, s.proposed_date, g.name AS group_name
+    FROM shutdowns s JOIN groups g ON g.id = s.group_id
+    WHERE s.status = 'in_progress'`;
+  const rows = req.user.role === 'admin'
+    ? db.prepare(base).all()
+    : db.prepare(
+        `${base} AND EXISTS(SELECT 1 FROM group_members m WHERE m.group_id = s.group_id AND m.user_id = ?)`
+      ).all(req.user.id);
+  res.json({ active: rows });
+});
+
+// בדיקת התנגשויות: השבתות אחרות באותו תאריך שנוגעות לאותם אנשים — חייב להיות לפני '/:id'
+router.get('/conflicts', (req, res) => {
+  const date = String(req.query.date || '');
+  const groupId = Number(req.query.group_id) || 0;
+  const excludeId = Number(req.query.exclude_id) || 0;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !groupId) return res.json({ conflicts: [] });
+
+  const conflicts = db.prepare(
+    `SELECT s.id, s.title, g.name AS group_name, s.is_final_date,
+       (SELECT COUNT(*) FROM group_members m1
+        WHERE m1.group_id = s.group_id
+          AND EXISTS(SELECT 1 FROM group_members m2 WHERE m2.group_id = ? AND m2.user_id = m1.user_id)
+       ) AS shared_members
+     FROM shutdowns s JOIN groups g ON g.id = s.group_id
+     WHERE s.proposed_date = ? AND s.id != ? AND s.status NOT IN ('completed', 'cancelled')`
+  ).all(groupId, date, excludeId).filter(c => c.shared_members > 0);
+  res.json({ conflicts });
+});
+
 // רשימת השבתות של המשתמש (לפי חברות בקבוצות; admin רואה הכול)
 router.get('/', (req, res) => {
   const base = `
@@ -55,9 +88,10 @@ router.post('/', validate(z.object({
   description: z.string().trim().max(2000).default(''),
   proposed_date: dateSchema,
   start_time: timeSchema,
-  end_time: timeSchema
+  end_time: timeSchema,
+  respond_by: dateSchema.or(z.literal('')).default('')
 })), (req, res) => {
-  const { group_id, title, description, proposed_date, start_time, end_time } = req.body;
+  const { group_id, title, description, proposed_date, start_time, end_time, respond_by } = req.body;
   if (!db.prepare('SELECT id FROM groups WHERE id = ?').get(group_id)) {
     return res.status(404).json({ error: 'קבוצה לא נמצאה' });
   }
@@ -65,16 +99,17 @@ router.post('/', validate(z.object({
     return res.status(403).json({ error: 'רק מנהל השבתה של הקבוצה יכול ליצור השבתה' });
   }
   const info = db.prepare(
-    `INSERT INTO shutdowns (group_id, title, description, proposed_date, start_time, end_time, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(group_id, title, description, proposed_date, start_time, end_time, req.user.id);
+    `INSERT INTO shutdowns (group_id, title, description, proposed_date, start_time, end_time, respond_by, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(group_id, title, description, proposed_date, start_time, end_time, respond_by, req.user.id);
   const id = Number(info.lastInsertRowid);
 
   audit(req.user.id, 'create_shutdown', 'shutdown', id, title);
-  systemMessage(id, `📢 ${req.user.display_name} פתח/ה השבתה חדשה: "${title}" בתאריך ${fmtDate(proposed_date)}${start_time ? ` בשעה ${start_time}` : ''}`);
+  const deadlineTxt = respond_by ? ` (להגיב עד ${fmtDate(respond_by)})` : '';
+  systemMessage(id, `📢 ${req.user.display_name} פתח/ה השבתה חדשה: "${title}" בתאריך ${fmtDate(proposed_date)}${start_time ? ` בשעה ${start_time}` : ''}${deadlineTxt}`);
   notifyUsers(groupMemberIds(id, req.user.id), {
     kind: 'new_shutdown',
-    body: `השבתה חדשה: "${title}" בתאריך ${fmtDate(proposed_date)} — נדרשת תגובתך`,
+    body: `השבתה חדשה: "${title}" בתאריך ${fmtDate(proposed_date)} — נדרשת תגובתך${deadlineTxt}`,
     shutdownId: id,
     payload: { needs_response: true, title, proposed_date }
   });
@@ -152,6 +187,7 @@ router.patch('/:id', validate(z.object({
   proposed_date: dateSchema.optional(),
   start_time: timeSchema.optional(),
   end_time: timeSchema.optional(),
+  respond_by: dateSchema.or(z.literal('')).optional(),
   status: z.enum(['proposed', 'confirmed', 'in_progress', 'completed', 'cancelled']).optional(),
   is_final_date: z.boolean().optional()
 })), (req, res) => {
@@ -160,7 +196,7 @@ router.patch('/:id', validate(z.object({
   if (!isGroupManager(req.user.id, shutdown.group_id)) {
     return res.status(403).json({ error: 'רק מנהל ההשבתה יכול לעדכן' });
   }
-  const { title, description, proposed_date, start_time, end_time, status, is_final_date } = req.body;
+  const { title, description, proposed_date, start_time, end_time, respond_by, status, is_final_date } = req.body;
 
   // שינוי תאריך ⇦ סבב אישור חדש
   if (proposed_date && proposed_date !== shutdown.proposed_date) {
@@ -180,6 +216,7 @@ router.patch('/:id', validate(z.object({
   if (description !== undefined) db.prepare('UPDATE shutdowns SET description = ? WHERE id = ?').run(description, shutdown.id);
   if (start_time !== undefined) db.prepare('UPDATE shutdowns SET start_time = ? WHERE id = ?').run(start_time, shutdown.id);
   if (end_time !== undefined) db.prepare('UPDATE shutdowns SET end_time = ? WHERE id = ?').run(end_time, shutdown.id);
+  if (respond_by !== undefined) db.prepare('UPDATE shutdowns SET respond_by = ? WHERE id = ?').run(respond_by, shutdown.id);
 
   // קיבוע תאריך סופי (ירוק בלוח)
   if (is_final_date === true && !shutdown.is_final_date) {

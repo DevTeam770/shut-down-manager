@@ -4,14 +4,22 @@ import db from '../db/db.js';
 
 export function signToken(user) {
   return jwt.sign(
-    { id: user.id, username: user.username, role: user.role },
+    { id: user.id, username: user.username, role: user.role, v: user.token_version ?? 0 },
     config.jwtSecret,
     { expiresIn: `${config.jwtExpiresDays}d` }
   );
 }
 
+// אימות טוקן + השוואת גרסה — איפוס סיסמא מנתק מיידית את כל ההתחברויות הקודמות
 export function verifyToken(token) {
-  return jwt.verify(token, config.jwtSecret);
+  const payload = jwt.verify(token, config.jwtSecret);
+  const user = db.prepare('SELECT id, username, display_name, role, token_version FROM users WHERE id = ?').get(payload.id);
+  if (!user || user.token_version !== (payload.v ?? 0)) {
+    const err = new Error('token revoked');
+    err.name = 'TokenRevokedError';
+    throw err;
+  }
+  return user;
 }
 
 // אימות בקשת HTTP — JWT מ-cookie בשם token
@@ -19,11 +27,7 @@ export function requireAuth(req, res, next) {
   const token = req.cookies?.token;
   if (!token) return res.status(401).json({ error: 'נדרשת התחברות' });
   try {
-    const payload = verifyToken(token);
-    // שליפה טרייה מה-DB — role עדכני גם אם השתנה אחרי הנפקת הטוקן
-    const user = db.prepare('SELECT id, username, display_name, role FROM users WHERE id = ?').get(payload.id);
-    if (!user) return res.status(401).json({ error: 'משתמש לא קיים' });
-    req.user = user;
+    req.user = verifyToken(token); // משתמש טרי מה-DB, כולל בדיקת revocation
     next();
   } catch {
     return res.status(401).json({ error: 'התחברות פגה, יש להתחבר מחדש' });

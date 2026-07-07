@@ -75,8 +75,11 @@ router.post('/change-password', requireAuth, validate(z.object({
   if (!bcrypt.compareSync(req.body.current_password, user.password_hash)) {
     return res.status(401).json({ error: 'סיסמא נוכחית שגויה' });
   }
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+  // הקפצת token_version מנתקת את כל שאר ההתחברויות; מנפיקים cookie חדש כדי שהמשתמש הנוכחי יישאר מחובר
+  db.prepare('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?')
     .run(bcrypt.hashSync(req.body.new_password, 10), req.user.id);
+  const fresh = db.prepare('SELECT id, username, display_name, role, token_version FROM users WHERE id = ?').get(req.user.id);
+  res.cookie('token', signToken(fresh), cookieOpts);
   audit(req.user.id, 'change_password', 'user', req.user.id);
   res.json({ ok: true });
 });

@@ -49,7 +49,11 @@ router.patch('/:id', requireAdmin, validate(z.object({
   if (role && id === req.user.id && role !== 'admin') {
     return res.status(400).json({ error: 'לא ניתן להסיר הרשאות admin מעצמך' });
   }
-  if (password) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(password, 10), id);
+  // איפוס סיסמא מנתק מיידית את כל ההתחברויות הקיימות של המשתמש (token_version)
+  if (password) {
+    db.prepare('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?')
+      .run(bcrypt.hashSync(password, 10), id);
+  }
   if (display_name) db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(display_name, id);
   if (role) db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
 
