@@ -1,9 +1,49 @@
 import { Router } from 'express';
 import db from '../db/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { STATUS_LABELS } from '../services/shutdowns.js';
 
 const router = Router();
 router.use(requireAuth);
+
+// ייצוא CSV של היסטוריית ההשבתות (בהיקף הקבוצות של המשתמש; admin — הכול)
+router.get('/export.csv', (req, res) => {
+  const base = `
+    SELECT s.id, s.title, g.name AS group_name, s.proposed_date, s.start_time, s.end_time,
+      s.status, s.is_final_date, u.display_name AS created_by_name,
+      (SELECT COUNT(*) FROM group_members m WHERE m.group_id = s.group_id) AS member_count,
+      (SELECT COUNT(*) FROM approvals a WHERE a.shutdown_id = s.id AND a.response = 'approved') AS approved_count,
+      r.score, r.summary, r.lessons
+    FROM shutdowns s
+    JOIN groups g ON g.id = s.group_id
+    JOIN users u ON u.id = s.created_by
+    LEFT JOIN shutdown_reviews r ON r.shutdown_id = s.id`;
+  const rows = req.user.role === 'admin'
+    ? db.prepare(`${base} ORDER BY s.proposed_date DESC`).all()
+    : db.prepare(
+        `${base} WHERE EXISTS(SELECT 1 FROM group_members m WHERE m.group_id = s.group_id AND m.user_id = ?)
+         ORDER BY s.proposed_date DESC`
+      ).all(req.user.id);
+
+  const esc = (v) => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = ['מזהה', 'כותרת', 'קבוצה', 'תאריך', 'שעת התחלה', 'שעת סיום', 'סטטוס', 'תאריך סופי', 'נוצרה ע"י', 'אישרו', 'חברים', 'ציון', 'סיכום', 'לקחים'];
+  const lines = [header.join(',')];
+  for (const r of rows) {
+    lines.push([
+      r.id, r.title, r.group_name, r.proposed_date, r.start_time, r.end_time,
+      STATUS_LABELS[r.status] || r.status, r.is_final_date ? 'כן' : 'לא', r.created_by_name,
+      r.approved_count, r.member_count, r.score ?? '', r.summary ?? '', r.lessons ?? ''
+    ].map(esc).join(','));
+  }
+  // BOM (﻿) כדי ש-Excel יזהה עברית (UTF-8)
+  const BOM = String.fromCharCode(0xFEFF);
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', 'attachment; filename=shutdowns-report.csv');
+  res.send(BOM + lines.join('\r\n'));
+});
 
 // סטטיסטיקות לדשבורד — בהיקף הקבוצות של המשתמש (admin: הכול)
 router.get('/', (req, res) => {

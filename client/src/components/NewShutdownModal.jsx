@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import Modal from './Modal.jsx';
 
-// יצירת השבתה חדשה — למנהלי השבתה בלבד (groups = הקבוצות שהמשתמש מנהל)
-export default function NewShutdownModal({ groups, onClose, onCreated }) {
+// יצירת השבתה חדשה — למנהלי השבתה בלבד (groups = הקבוצות שהמשתמש מנהל).
+// history = השבתות קודמות, לשימוש כתבנית (מעתיק כותרת/תיאור/שעות — לא תאריכים).
+export default function NewShutdownModal({ groups, history = [], onClose, onCreated }) {
   const navigate = useNavigate();
   const [form, setForm] = useState({
     group_id: groups[0]?.id || 0,
@@ -52,6 +53,37 @@ export default function NewShutdownModal({ groups, onClose, onCreated }) {
             {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
         </label>
+        {history.filter(h => h.group_id === Number(form.group_id)).length > 0 && (
+          <label className="field">
+            <span>📋 תבנית — העתקה מהשבתה קודמת (רשות)</span>
+            <select
+              className="select"
+              defaultValue=""
+              onChange={e => {
+                const t = history.find(h => h.id === Number(e.target.value));
+                if (t) {
+                  setForm(f => ({
+                    ...f,
+                    title: t.title,
+                    description: t.description || '',
+                    start_time: t.start_time || '',
+                    end_time: t.end_time || ''
+                  }));
+                }
+              }}
+            >
+              <option value="">— התחלה מאפס —</option>
+              {history
+                .filter(h => h.group_id === Number(form.group_id))
+                .slice(0, 20)
+                .map(h => (
+                  <option key={h.id} value={h.id}>
+                    {h.title} ({h.proposed_date})
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
         <label className="field">
           <span>כותרת ההשבתה</span>
           <input className="input" value={form.title} onChange={set('title')} required

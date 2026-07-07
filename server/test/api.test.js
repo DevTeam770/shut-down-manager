@@ -256,6 +256,17 @@ describe('שדרוגים: דד-ליין, התנגשויות, active-now, revocat
     await agent.get('/api/auth/me').expect(401); // ה-cookie הישן כבר לא תקף
   });
 
+  it('ייצוא CSV מחזיר דוח עם BOM וכל ההשבתות בהיקף המשתמש', async () => {
+    const r = await member.get('/api/stats/export.csv').expect(200);
+    expect(r.headers['content-type']).toContain('text/csv');
+    expect(r.text.charCodeAt(0)).toBe(0xFEFF); // BOM לזיהוי עברית ב-Excel
+    expect(r.text).toContain('שדרוג מתגי ליבה');
+    expect(r.text).toContain('ציון');
+    // משתמש זר בלי קבוצות — מקבל רק כותרת
+    const empty = await outsider.get('/api/stats/export.csv').expect(200);
+    expect(empty.text.trim().split('\n').length).toBe(1);
+  });
+
   it('יומן פעולות נגיש ל-admin בלבד ומכיל רשומות', async () => {
     await member.get('/api/audit').expect(403);
     const r = await admin.get('/api/audit').expect(200);

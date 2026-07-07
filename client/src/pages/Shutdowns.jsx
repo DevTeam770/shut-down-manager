@@ -88,7 +88,14 @@ export default function Shutdowns() {
         </table>
       </div>
 
-      {showNew && <NewShutdownModal groups={groups} onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
+      {showNew && (
+        <NewShutdownModal
+          groups={groups}
+          history={shutdowns}
+          onClose={() => setShowNew(false)}
+          onCreated={() => { setShowNew(false); load(); }}
+        />
+      )}
     </>
   );
 }

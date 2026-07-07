@@ -322,6 +322,30 @@ label.field > span { display: block; font-weight: 600; font-size: .88rem; margin
 .notif-item:hover { background: var(--surface-2); }
 .notif-item.unread { background: var(--primary-soft); }
 
+/* גרף עמודות חודשי */
+.month-chart {
+  display: flex; align-items: stretch; gap: 10px;
+  height: 150px; padding: 8px 4px 0;
+}
+.mc-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.mc-value {
+  text-align: center; font-size: .78rem; font-weight: 600;
+  color: var(--text-dim); height: 18px;
+}
+.mc-bar-area { flex: 1; display: flex; align-items: flex-end; justify-content: center; }
+.mc-bar {
+  width: min(38px, 70%);
+  background: var(--primary);
+  border-radius: 4px 4px 0 0; /* קצה נתון מעוגל, מעוגן לבסיס */
+  min-height: 0;
+  transition: height .4s ease;
+}
+.mc-col:hover .mc-bar { background: var(--primary-hover); }
+.mc-label {
+  text-align: center; font-size: .74rem; color: var(--text-dim);
+  border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px;
+}
+
 /* stat tiles */
 .stat-tile { text-align: center; padding: 18px 8px; }
 .stat-tile .num { font-size: 2rem; font-weight: 800; }

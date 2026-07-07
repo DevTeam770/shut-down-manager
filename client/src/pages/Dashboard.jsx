@@ -5,6 +5,27 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { fmtDate, STATUS_LABELS, STATUS_BADGE } from '../utils/format.js';
 import RespondButtons from '../components/RespondButtons.jsx';
 
+// גרף עמודות: השבתות לפי חודש (6 חודשים אחרונים).
+// סדרה אחת בצבע המערכת; ציר הזמן שמאל→ימין; טקסט בצבעי טקסט בלבד.
+function MonthChart({ data }) {
+  const max = Math.max(...data.map(d => d.c), 1);
+  const label = (m) => `${m.slice(5, 7)}/${m.slice(2, 4)}`;
+  return (
+    <div className="month-chart" dir="ltr" role="img"
+      aria-label={`השבתות לפי חודש: ${data.map(d => `${label(d.month)} — ${d.c}`).join(', ')}`}>
+      {data.map(d => (
+        <div className="mc-col" key={d.month} title={`${label(d.month)}: ${d.c} השבתות`}>
+          <div className="mc-value">{d.c > 0 ? d.c : ''}</div>
+          <div className="mc-bar-area">
+            <div className="mc-bar" style={{ height: `${(100 * d.c) / max}%` }} />
+          </div>
+          <div className="mc-label">{label(d.month)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
   const [shutdowns, setShutdowns] = useState(null);
@@ -57,6 +78,19 @@ export default function Dashboard() {
               <RespondButtons compact shutdownId={s.id} onDone={load} />
             </div>
           ))}
+        </div>
+      )}
+
+      {stats?.byMonth?.length > 0 && (
+        <div className="card">
+          <div className="row spread">
+            <h2>השבתות לפי חודש</h2>
+            <a className="btn btn-ghost btn-sm" href="/api/stats/export.csv" download
+              title="הורדת דוח מלא: כל ההשבתות, ציונים ולקחים (נפתח ב-Excel)">
+              ⬇️ ייצוא דוח CSV
+            </a>
+          </div>
+          <MonthChart data={stats.byMonth} />
         </div>
       )}
 
