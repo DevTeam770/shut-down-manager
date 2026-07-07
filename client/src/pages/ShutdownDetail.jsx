@@ -7,6 +7,7 @@ import { fmtDate, STATUS_LABELS, STATUS_BADGE, RESPONSE_LABELS } from '../utils/
 import Chat from '../components/Chat.jsx';
 import RespondButtons from '../components/RespondButtons.jsx';
 import Modal from '../components/Modal.jsx';
+import Attachments from '../components/Attachments.jsx';
 
 const RESPONSE_BADGE = { approved: 'badge-green', rejected: 'badge-red', conditional: 'badge-orange' };
 
@@ -20,16 +21,17 @@ export default function ShutdownDetail() {
   const [newDate, setNewDate] = useState('');
   const [reviewModal, setReviewModal] = useState(false);
   const [review, setReview] = useState({ summary: '', score: 7, lessons: '' });
+  const [version, setVersion] = useState(0); // עולה בכל עדכון חי — מרענן גם את רכיב הקבצים
 
   const load = useCallback(() => {
     api.get(`/api/shutdowns/${id}`).then(setData).catch(e => setError(e.message));
   }, [id]);
   useEffect(load, [load]);
 
-  // עדכון חי כשמשהו משתנה בהשבתה (תגובות, סטטוס, תאריך)
+  // עדכון חי כשמשהו משתנה בהשבתה (תגובות, סטטוס, תאריך, קבצים)
   useEffect(() => {
     if (!socket) return;
-    const onUpdate = (u) => { if (u.id === Number(id)) load(); };
+    const onUpdate = (u) => { if (u.id === Number(id)) { load(); setVersion(v => v + 1); } };
     socket.on('shutdown:updated', onUpdate);
     return () => socket.off('shutdown:updated', onUpdate);
   }, [socket, id, load]);
@@ -102,6 +104,10 @@ export default function ShutdownDetail() {
       </div>
 
       {s.description && <div className="card" style={{ whiteSpace: 'pre-wrap' }}>{s.description}</div>}
+
+      <div style={{ marginTop: 16 }}>
+        <Attachments shutdownId={s.id} refreshKey={version} />
+      </div>
 
       {error && <div className="error-msg">{error}</div>}
 

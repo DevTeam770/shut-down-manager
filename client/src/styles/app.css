@@ -240,18 +240,28 @@ label.field > span { display: block; font-weight: 600; font-size: .88rem; margin
   font-weight: 700; font-size: .85rem;
 }
 .cal-cell {
-  background: var(--surface); min-height: 92px; padding: 6px;
-  display: flex; flex-direction: column; gap: 4px;
+  /* גובה קבוע — כל התאים שווים גם כשיש הרבה אירועים; העודף נגלל בתוך התא */
+  background: var(--surface); height: 118px; padding: 6px;
+  display: flex; flex-direction: column; gap: 4px; overflow: hidden;
+}
+.cal-events {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 3px;
+  scrollbar-width: thin;
 }
 .cal-cell.other { opacity: .4; }
 .cal-cell.today { outline: 2px solid var(--primary); outline-offset: -2px; }
 .cal-date { display: flex; justify-content: space-between; font-size: .82rem; }
 .cal-date .greg { font-weight: 700; }
 .cal-date .heb { color: var(--text-dim); font-size: .74rem; }
-.cal-holiday { font-size: .68rem; color: var(--primary); }
+.cal-holiday {
+  font-size: .68rem; color: var(--primary); flex-shrink: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .cal-event {
   font-size: .74rem; font-weight: 600; padding: 2px 6px; border-radius: 6px;
   cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex-shrink: 0;
 }
 .cal-event.proposed { background: var(--orange-soft); color: var(--orange); border-right: 3px solid var(--orange); }
 .cal-event.final { background: var(--green-soft); color: var(--green); border-right: 3px solid var(--green); }

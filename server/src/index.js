@@ -18,6 +18,7 @@ import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import groupRoutes from './routes/groups.js';
 import shutdownRoutes from './routes/shutdowns.js';
+import fileRoutes from './routes/files.js';
 import notificationRoutes from './routes/notifications.js';
 import calendarRoutes from './routes/calendar.js';
 import statsRoutes from './routes/stats.js';
@@ -49,6 +50,7 @@ app.use(cookieParser());
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/groups', groupRoutes);
+app.use('/api/shutdowns', fileRoutes); // קבצים — לפני ה-routes הכלליים של השבתות
 app.use('/api/shutdowns', shutdownRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/calendar', calendarRoutes);

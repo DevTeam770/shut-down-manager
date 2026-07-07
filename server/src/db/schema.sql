@@ -86,6 +86,18 @@ CREATE TABLE IF NOT EXISTS shutdown_reviews (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS attachments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  shutdown_id INTEGER NOT NULL REFERENCES shutdowns(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  original_name TEXT NOT NULL,          -- השם שהמשתמש העלה (מוצג בלבד)
+  stored_name TEXT NOT NULL,            -- שם אקראי בדיסק
+  mime TEXT DEFAULT '',
+  size INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_shutdown ON attachments(shutdown_id);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER REFERENCES users(id),

@@ -112,17 +112,19 @@ export default function CalendarPage() {
                 <span className="greg">{d.getDate()}</span>
                 <span className="heb">{Locale.hebrewStripNikkud(hd.renderGematriya(true)).split(' ')[0]} {Locale.gettext(hd.getMonthName(), 'he')}</span>
               </div>
-              {holidays[key] && <div className="cal-holiday">✡ {holidays[key]}</div>}
-              {dayEvents.map(e => (
-                <div
-                  key={e.id}
-                  className={`cal-event ${e.is_final_date ? 'final' : 'proposed'}`}
-                  title={`${e.title} (${e.group_name})${e.start_time ? ` ${e.start_time}` : ''}`}
-                  onClick={() => navigate(`/shutdowns/${e.id}`)}
-                >
-                  {e.start_time && `${e.start_time} `}{e.title}
-                </div>
-              ))}
+              {holidays[key] && <div className="cal-holiday" title={holidays[key]}>✡ {holidays[key]}</div>}
+              <div className="cal-events">
+                {dayEvents.map(e => (
+                  <div
+                    key={e.id}
+                    className={`cal-event ${e.is_final_date ? 'final' : 'proposed'}`}
+                    title={`${e.title} (${e.group_name})${e.start_time ? ` ${e.start_time}` : ''}`}
+                    onClick={() => navigate(`/shutdowns/${e.id}`)}
+                  >
+                    {e.start_time && `${e.start_time} `}{e.title}
+                  </div>
+                ))}
+              </div>
             </div>
           );
         })}

@@ -32,7 +32,7 @@ export function audit(userId, action, entity, entityId, details = '') {
   ).run(userId, action, entity, entityId, typeof details === 'string' ? details : JSON.stringify(details));
 }
 
-// גיבוי DB עם VACUUM INTO — קובץ עקבי גם תוך כדי עבודה
+// גיבוי DB עם VACUUM INTO — קובץ עקבי גם תוך כדי עבודה + העתקת קבצים מצורפים
 export function backupDatabase() {
   const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
   const target = path.join(config.backupDir, `shutdown-manager-${stamp}.db`);
@@ -42,7 +42,11 @@ export function backupDatabase() {
   for (const old of files.slice(0, Math.max(0, files.length - 14))) {
     fs.unlinkSync(path.join(config.backupDir, old));
   }
-  logger.info({ target }, 'גיבוי DB הושלם');
+  // הקבצים המצורפים מסונכרנים לעותק יחיד (לא נשמרות גרסאות — הם לא משתנים, רק נוספים/נמחקים)
+  if (fs.existsSync(config.uploadDir)) {
+    fs.cpSync(config.uploadDir, path.join(config.backupDir, 'uploads'), { recursive: true, force: true });
+  }
+  logger.info({ target }, 'גיבוי DB וקבצים הושלם');
   return target;
 }
 

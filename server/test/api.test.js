@@ -10,6 +10,7 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shutdown-test-'));
 process.env.DB_PATH = path.join(tmpDir, 'test.db');
 process.env.PORT = '0';
 process.env.ENV_FILE = path.join(tmpDir, '.env');
+process.env.UPLOAD_DIR = path.join(tmpDir, 'uploads');
 
 const { app } = await import('../src/index.js');
 
@@ -169,6 +170,69 @@ describe('קיבוע תאריך ומעברי סטטוס', () => {
     const r = await manager.post(`/api/shutdowns/${shutdownId}/review`)
       .send({ summary: 'עבר חלק', score: 9, lessons: 'לתאם מראש עם ספק' }).expect(200);
     expect(r.body.shutdown.review.score).toBe(9);
+  });
+});
+
+describe('קבצים מצורפים', () => {
+  let fileId;
+  const pdfContent = Buffer.from('%PDF-1.4 fake test file תוכן בעברית');
+
+  it('חבר רגיל לא יכול להעלות קובץ', async () => {
+    await member.post(`/api/shutdowns/${shutdownId}/files`)
+      .attach('files', pdfContent, 'נוהל-השבתה.pdf').expect(403);
+  });
+
+  it('משתמש זר לא יכול להעלות קובץ', async () => {
+    await outsider.post(`/api/shutdowns/${shutdownId}/files`)
+      .attach('files', pdfContent, 'x.pdf').expect(403);
+  });
+
+  it('קובץ הרצה (exe) נחסם', async () => {
+    await manager.post(`/api/shutdowns/${shutdownId}/files`)
+      .attach('files', Buffer.from('MZ'), 'virus.exe').expect(400);
+  });
+
+  it('מנהל השבתה מעלה קובץ בהצלחה', async () => {
+    const r = await manager.post(`/api/shutdowns/${shutdownId}/files`)
+      .attach('files', pdfContent, 'נוהל-השבתה.pdf').expect(201);
+    expect(r.body.count).toBe(1);
+  });
+
+  it('admin מעלה קובץ בהצלחה', async () => {
+    await admin.post(`/api/shutdowns/${shutdownId}/files`)
+      .attach('files', Buffer.from('col1,col2'), 'checklist.csv').expect(201);
+  });
+
+  it('חבר קבוצה רואה את רשימת הקבצים ומוריד עם התוכן המקורי', async () => {
+    const list = await member.get(`/api/shutdowns/${shutdownId}/files`).expect(200);
+    expect(list.body.files.length).toBe(2);
+    expect(list.body.can_manage).toBe(false);
+    fileId = list.body.files.find(f => f.original_name === 'נוהל-השבתה.pdf').id;
+
+    const dl = await member.get(`/api/shutdowns/${shutdownId}/files/${fileId}`)
+      .buffer(true).parse((res, cb) => {
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      }).expect(200);
+    expect(Buffer.compare(dl.body, pdfContent)).toBe(0);
+    expect(dl.headers['content-disposition']).toContain('attachment');
+  });
+
+  it('משתמש זר לא יכול להוריד קובץ', async () => {
+    await outsider.get(`/api/shutdowns/${shutdownId}/files/${fileId}`).expect(403);
+  });
+
+  it('הודעת מערכת על צירוף קובץ נוצרה בצ׳אט', async () => {
+    const r = await member.get(`/api/shutdowns/${shutdownId}/messages`).expect(200);
+    expect(r.body.messages.some(m => m.type === 'system' && m.body.includes('📎'))).toBe(true);
+  });
+
+  it('חבר רגיל לא יכול למחוק, מנהל כן', async () => {
+    await member.del(`/api/shutdowns/${shutdownId}/files/${fileId}`).expect(403);
+    await manager.del(`/api/shutdowns/${shutdownId}/files/${fileId}`).expect(200);
+    const list = await member.get(`/api/shutdowns/${shutdownId}/files`).expect(200);
+    expect(list.body.files.length).toBe(1);
   });
 });
 

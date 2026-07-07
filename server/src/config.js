@@ -34,10 +34,13 @@ const config = {
   jwtSecret: process.env.JWT_SECRET,
   jwtExpiresDays: num(process.env.JWT_EXPIRES_DAYS, 7),
   logDir: process.env.LOG_DIR || path.join(rootDir, 'logs'),
-  backupHour: num(process.env.BACKUP_HOUR, 2) // שעת גיבוי לילי
+  backupHour: num(process.env.BACKUP_HOUR, 2), // שעת גיבוי לילי
+  uploadDir: process.env.UPLOAD_DIR || path.join(rootDir, 'data', 'uploads'),
+  maxFileMb: num(process.env.MAX_FILE_MB, 25),
+  maxFilesPerShutdown: num(process.env.MAX_FILES_PER_SHUTDOWN, 20)
 };
 
-for (const dir of [path.dirname(config.dbPath), config.backupDir, config.logDir]) {
+for (const dir of [path.dirname(config.dbPath), config.backupDir, config.logDir, config.uploadDir]) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
