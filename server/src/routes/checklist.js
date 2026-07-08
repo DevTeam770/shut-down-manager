@@ -22,22 +22,25 @@ function loadShutdown(req, res) {
   return shutdown;
 }
 
-// הוספת פריט (מנהל)
+// הוספת פריט (מנהל). admin_only — פריט פרטי שרק מנהלי מערכת רואים.
 router.post('/:id/checklist', validate(z.object({
   text: z.string().trim().min(1, 'טקסט המשימה ריק').max(300),
-  phase: z.enum(['before', 'during', 'after']).default('before')
+  phase: z.enum(['before', 'during', 'after']).default('before'),
+  admin_only: z.boolean().default(false)
 })), (req, res) => {
   const shutdown = loadShutdown(req, res);
   if (!shutdown) return;
   if (!isGroupManager(req.user.id, shutdown.group_id)) {
     return res.status(403).json({ error: 'רק מנהל השבתה יכול להוסיף משימות' });
   }
+  // רק מנהל מערכת יכול ליצור פריט פרטי
+  const adminOnly = req.body.admin_only && req.user.role === 'admin' ? 1 : 0;
   const pos = db.prepare(
     'SELECT COALESCE(MAX(position), 0) + 1 AS p FROM checklist_items WHERE shutdown_id = ? AND phase = ?'
   ).get(shutdown.id, req.body.phase).p;
   const info = db.prepare(
-    'INSERT INTO checklist_items (shutdown_id, text, phase, position) VALUES (?, ?, ?, ?)'
-  ).run(shutdown.id, req.body.text, req.body.phase, pos);
+    'INSERT INTO checklist_items (shutdown_id, text, phase, position, admin_only) VALUES (?, ?, ?, ?, ?)'
+  ).run(shutdown.id, req.body.text, req.body.phase, pos, adminOnly);
   audit(req.user.id, 'add_checklist_item', 'shutdown', shutdown.id, req.body.text);
   emitShutdownUpdate(shutdown.id);
   res.status(201).json({ id: Number(info.lastInsertRowid) });

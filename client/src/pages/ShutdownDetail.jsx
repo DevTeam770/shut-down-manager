@@ -108,6 +108,12 @@ export default function ShutdownDetail() {
         )}
         <span className="muted">קבוצה: <Link to={`/groups/${s.group_id}`}>{s.group_name}</Link> · נפתחה ע"י {s.created_by_name}</span>
         <a className="btn btn-ghost btn-sm" href={`/api/calendar/shutdowns/${s.id}/ics`} download>📅 הוספה ל-Outlook</a>
+        {is_manager && (
+          <a className="btn btn-ghost btn-sm" href={`/api/shutdowns/${s.id}/document`} target="_blank" rel="noreferrer"
+            title="מסמך מרוכז של כל האישורים והמשמעויות — להדפסה או שמירה כ-PDF">
+            📄 מסמך מרוכז
+          </a>
+        )}
       </div>
 
       {s.description && <div className="card" style={{ whiteSpace: 'pre-wrap' }}>{s.description}</div>}
@@ -155,6 +161,7 @@ export default function ShutdownDetail() {
                   )}
                 </div>
                 {a.condition_text && <div className="muted">״{a.condition_text}״</div>}
+                {a.impact_text && <div className="muted">📋 משמעות: {a.impact_text}</div>}
                 {a.alternative_date && (
                   <div className="row" style={{ marginTop: 4 }}>
                     <span className="badge badge-blue">📅 מציע/ה: {fmtDate(a.alternative_date)}</span>
@@ -205,7 +212,7 @@ export default function ShutdownDetail() {
 
           {/* צ'קליסט משימות */}
           {!['cancelled'].includes(s.status) && (
-            <Checklist shutdownId={s.id} items={s.checklist || []} isManager={is_manager} onChange={load} />
+            <Checklist shutdownId={s.id} items={s.checklist || []} isManager={is_manager} isAdmin={user.role === 'admin'} onChange={load} />
           )}
 
           {/* משוב מכל המשתתפים — אחרי סיום */}

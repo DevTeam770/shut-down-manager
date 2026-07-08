@@ -8,6 +8,7 @@ import { fmtDateTime } from '../utils/format.js';
 import RespondButtons from './RespondButtons.jsx';
 import ActiveBanner from './ActiveBanner.jsx';
 import GlobalSearch from './GlobalSearch.jsx';
+import AnnounceModal from './AnnounceModal.jsx';
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -16,6 +17,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const [bellOpen, setBellOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [announceOpen, setAnnounceOpen] = useState(false);
   const [theme, setTheme] = useState(document.documentElement.dataset.theme || 'light');
 
   const toggleTheme = () => {
@@ -60,9 +62,13 @@ export default function Layout() {
           <NavLink to="/shutdowns">השבתות</NavLink>
           <NavLink to="/groups">קבוצות</NavLink>
           <NavLink to="/calendar">לוח שנה</NavLink>
+          <NavLink to="/procedures">נהלי השבתות</NavLink>
           {user?.role === 'admin' && <NavLink to="/admin">ניהול</NavLink>}
         </nav>
         <GlobalSearch />
+        {user?.role === 'admin' && (
+          <button className="btn btn-ghost btn-sm" onClick={() => setAnnounceOpen(true)} title="הודעה לכל המשתמשים">📣</button>
+        )}
         <button className="bell" onClick={openBell} title="התראות">
           🔔
           {unread > 0 && <span className="dot">{unread > 99 ? '99+' : unread}</span>}
@@ -97,6 +103,8 @@ export default function Layout() {
       <main className="main">
         <Outlet />
       </main>
+
+      {announceOpen && <AnnounceModal onClose={() => setAnnounceOpen(false)} />}
 
       {/* התראות קופצות */}
       <div className="toast-container">

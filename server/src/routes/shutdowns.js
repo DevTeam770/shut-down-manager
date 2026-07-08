@@ -6,6 +6,7 @@ import {
   getShutdownFull, canTransition, isChatOpen, resetApprovals, touch, fmtDate, STATUS_LABELS
 } from '../services/shutdowns.js';
 import { systemMessage, notifyUsers, groupMemberIds, emitShutdownUpdate, emitActiveChanged } from '../services/events.js';
+import { mailUsers } from '../services/mailer.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -124,7 +125,7 @@ router.post('/', validate(z.object({
     payload: { needs_response: true, title, proposed_date }
   });
 
-  res.status(201).json({ shutdown: getShutdownFull(id) });
+  res.status(201).json({ shutdown: getShutdownFull(id, req.user.role) });
 });
 
 // פרטי השבתה מלאים
@@ -132,7 +133,7 @@ router.get('/:id', (req, res) => {
   const shutdown = loadShutdown(req, res);
   if (!shutdown) return;
   res.json({
-    shutdown: getShutdownFull(shutdown.id),
+    shutdown: getShutdownFull(shutdown.id, req.user.role),
     is_manager: isGroupManager(req.user.id, shutdown.group_id),
     chat_open: isChatOpen(shutdown.status)
   });
@@ -142,7 +143,8 @@ router.get('/:id', (req, res) => {
 router.post('/:id/respond', validate(z.object({
   response: z.enum(['approved', 'rejected', 'conditional']),
   condition_text: z.string().trim().max(500).default(''),
-  alternative_date: dateSchema.or(z.literal('')).default('')
+  alternative_date: dateSchema.or(z.literal('')).default(''),
+  impact_text: z.string().trim().max(1000).default('') // משמעות ההשבתה על המשתמש
 }).refine(d => d.response !== 'conditional' || d.condition_text.length > 0, {
   message: 'בתגובה מותנית חובה לפרט את התנאי ("תלוי ב...")'
 })), (req, res) => {
@@ -154,15 +156,16 @@ router.post('/:id/respond', validate(z.object({
   if (shutdown.is_final_date) {
     return res.status(400).json({ error: 'התאריך כבר נקבע כסופי' });
   }
-  const { response, condition_text, alternative_date } = req.body;
+  const { response, condition_text, alternative_date, impact_text } = req.body;
 
   db.prepare(
-    `INSERT INTO approvals (shutdown_id, user_id, response, condition_text, alternative_date, condition_resolved, responded_at)
-     VALUES (?, ?, ?, ?, ?, 0, datetime('now'))
+    `INSERT INTO approvals (shutdown_id, user_id, response, condition_text, alternative_date, impact_text, condition_resolved, responded_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, datetime('now'))
      ON CONFLICT(shutdown_id, user_id) DO UPDATE SET
        response = excluded.response, condition_text = excluded.condition_text,
-       alternative_date = excluded.alternative_date, condition_resolved = 0, responded_at = datetime('now')`
-  ).run(shutdown.id, req.user.id, response, condition_text, alternative_date);
+       alternative_date = excluded.alternative_date, impact_text = excluded.impact_text,
+       condition_resolved = 0, responded_at = datetime('now')`
+  ).run(shutdown.id, req.user.id, response, condition_text, alternative_date, impact_text);
   touch(shutdown.id);
   audit(req.user.id, 'respond', 'shutdown', shutdown.id, JSON.stringify(req.body));
 
@@ -187,8 +190,44 @@ router.post('/:id/respond', validate(z.object({
   });
   emitShutdownUpdate(shutdown.id);
 
-  res.json({ shutdown: getShutdownFull(shutdown.id) });
+  // כשכל חברי הקבוצה הגיבו וכולם אישרו — ריכוז המשמעויות למסמך ושליחה למנהלי המערכת (לינור)
+  maybeSendConsolidatedDoc(shutdown);
+
+  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role) });
 });
+
+// בדיקה: כל חברי הקבוצה אישרו ⇦ שליחת המסמך המרוכז פעם אחת (doc_sent)
+function maybeSendConsolidatedDoc(shutdown) {
+  const fresh = db.prepare('SELECT * FROM shutdowns WHERE id = ?').get(shutdown.id);
+  if (fresh.doc_sent) return;
+  const memberCount = db.prepare('SELECT COUNT(*) AS c FROM group_members WHERE group_id = ?').get(fresh.group_id).c;
+  const approvedCount = db.prepare(
+    `SELECT COUNT(*) AS c FROM approvals a JOIN group_members m ON m.user_id = a.user_id AND m.group_id = ?
+     WHERE a.shutdown_id = ? AND a.response = 'approved'`
+  ).get(fresh.group_id, fresh.id).c;
+  if (memberCount === 0 || approvedCount < memberCount) return;
+
+  db.prepare('UPDATE shutdowns SET doc_sent = 1 WHERE id = ?').run(fresh.id);
+
+  const approvals = db.prepare(
+    `SELECT a.impact_text, u.display_name FROM approvals a JOIN users u ON u.id = a.user_id
+     WHERE a.shutdown_id = ? ORDER BY u.display_name`
+  ).all(fresh.id);
+  const lines = approvals.map(a => `• ${a.display_name}: ${a.impact_text || '(לא נכתבה משמעות)'}`).join('\n');
+  const mailBody =
+    `כל חברי הקבוצה אישרו את ההשבתה "${fresh.title}" בתאריך ${fmtDate(fresh.proposed_date)}.\n\n` +
+    `משמעויות ההשבתה לפי המשתתפים:\n${lines}\n\n` +
+    `למסמך המלא להדפסה: פתחו את דף ההשבתה במערכת ולחצו על "מסמך מרוכז".`;
+
+  const admins = db.prepare(`SELECT id FROM users WHERE role = 'admin'`).all().map(r => r.id);
+  systemMessage(fresh.id, '📄 כל החברים אישרו — המסמך המרוכז מוכן ונשלח למנהלי המערכת');
+  notifyUsers(admins, {
+    kind: 'doc_ready',
+    body: `📄 המסמך המרוכז של "${fresh.title}" מוכן — כל החברים אישרו`,
+    shutdownId: fresh.id
+  });
+  mailUsers(admins, `מסמך מרוכז: ${fresh.title}`, mailBody);
+}
 
 // עדכון השבתה: תאריך/שעות/סטטוס/קיבוע סופי (מנהל בלבד)
 router.patch('/:id', validate(z.object({
@@ -267,7 +306,7 @@ router.patch('/:id', validate(z.object({
   touch(shutdown.id);
   audit(req.user.id, 'update_shutdown', 'shutdown', shutdown.id, JSON.stringify(req.body));
   emitShutdownUpdate(shutdown.id);
-  res.json({ shutdown: getShutdownFull(shutdown.id) });
+  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role) });
 });
 
 // אימוץ תאריך חלופי שהוצע ע"י משתמש — קיצור דרך לשינוי תאריך
@@ -300,7 +339,7 @@ router.post('/:id/adopt-date', validate(z.object({
     payload: { needs_response: true, title: shutdown.title, proposed_date: newDate }
   });
   emitShutdownUpdate(shutdown.id);
-  res.json({ shutdown: getShutdownFull(shutdown.id) });
+  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role) });
 });
 
 // סימון תנאי כנפתר (מנהל)
@@ -329,7 +368,7 @@ router.patch('/:id/approvals/:userId/resolve', (req, res) => {
     shutdownId: shutdown.id
   });
   emitShutdownUpdate(shutdown.id);
-  res.json({ shutdown: getShutdownFull(shutdown.id) });
+  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role) });
 });
 
 // סיכום השבתה: תקציר + ציון + לקחים (מנהל, אחרי סיום)
@@ -357,7 +396,55 @@ router.post('/:id/review', validate(z.object({
     body: `פורסם סיכום להשבתה "${shutdown.title}" — ציון ${score}/10`,
     shutdownId: shutdown.id
   });
-  res.json({ shutdown: getShutdownFull(shutdown.id) });
+  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role) });
+});
+
+// מסמך מרוכז להדפסה/PDF — כל המשמעויות והאישורים בעמוד אחד (מנהל/admin)
+router.get('/:id/document', (req, res) => {
+  const shutdown = loadShutdown(req, res);
+  if (!shutdown) return;
+  if (!isGroupManager(req.user.id, shutdown.group_id)) {
+    return res.status(403).json({ error: 'רק מנהל השבתה או מנהל מערכת יכולים לצפות במסמך' });
+  }
+  const s = getShutdownFull(shutdown.id, 'admin');
+  const esc = (t) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const respLabels = { approved: 'אישר/ה', rejected: 'דחה/תה', conditional: 'מותנה' };
+  const rows = s.members.map(m => {
+    const a = s.approvals.find(x => x.user_id === m.id);
+    return `<tr>
+      <td>${esc(m.display_name)}</td>
+      <td>${a ? respLabels[a.response] : 'טרם הגיב/ה'}</td>
+      <td>${esc(a?.impact_text || '')}</td>
+      <td>${a?.responded_at ? esc(a.responded_at) : ''}</td>
+    </tr>`;
+  }).join('');
+
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(`<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
+<title>מסמך השבתה — ${esc(s.title)}</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; color: #1a2233; }
+  h1 { margin-bottom: 4px; } .meta { color: #555; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { border: 1px solid #cbd2dd; padding: 8px 10px; text-align: right; vertical-align: top; }
+  th { background: #eef1f6; }
+  .print-btn { margin: 16px 0; padding: 8px 16px; font-size: 15px; cursor: pointer; }
+  @media print { .print-btn { display: none; } }
+</style></head><body>
+  <h1>מסמך השבתה מרוכז</h1>
+  <div class="meta">
+    <strong>${esc(s.title)}</strong> · קבוצה: ${esc(s.group_name)}<br>
+    תאריך מתוכנן: ${fmtDate(s.proposed_date)}${s.start_time ? ` ${esc(s.start_time)}${s.end_time ? '–' + esc(s.end_time) : ''}` : ''}
+    ${s.is_final_date ? ' (סופי)' : ' (מוצע)'}<br>
+    ${s.description ? 'תיאור: ' + esc(s.description) + '<br>' : ''}
+    אישרו: ${s.approved_count}/${s.members.length}
+  </div>
+  <button class="print-btn" onclick="window.print()">🖨️ הדפסה / שמירה כ-PDF</button>
+  <table>
+    <thead><tr><th>משתתף</th><th>תגובה</th><th>משמעות ההשבתה עליו/עליה</th><th>מועד תגובה</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+</body></html>`);
 });
 
 // משוב אישי של משתתף — רק אחרי שההשבתה הסתיימה; ניתן לעדכן (upsert)
@@ -376,7 +463,7 @@ router.post('/:id/feedback', validate(z.object({
   ).run(shutdown.id, req.user.id, req.body.score, req.body.comment);
   audit(req.user.id, 'feedback', 'shutdown', shutdown.id, `score=${req.body.score}`);
   emitShutdownUpdate(shutdown.id);
-  res.json({ shutdown: getShutdownFull(shutdown.id) });
+  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role) });
 });
 
 // היסטוריית צ'אט עם pagination (before_id לגלילה אחורה, after_id לסנכרון אחרי ניתוק)

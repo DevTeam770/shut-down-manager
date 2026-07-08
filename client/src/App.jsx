@@ -11,6 +11,7 @@ const ShutdownDetail = lazy(() => import('./pages/ShutdownDetail.jsx'));
 const Groups = lazy(() => import('./pages/Groups.jsx'));
 const GroupDetail = lazy(() => import('./pages/GroupDetail.jsx'));
 const CalendarPage = lazy(() => import('./pages/CalendarPage.jsx'));
+const ProceduresPage = lazy(() => import('./pages/ProceduresPage.jsx'));
 const Admin = lazy(() => import('./pages/Admin.jsx'));
 
 function Loading() {
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="/groups" element={<Groups />} />
             <Route path="/groups/:id" element={<GroupDetail />} />
             <Route path="/calendar" element={<CalendarPage />} />
+            <Route path="/procedures" element={<ProceduresPage />} />
             {user.role === 'admin' && <Route path="/admin" element={<Admin />} />}
             <Route path="*" element={<Navigate to="/" />} />
           </Route>

@@ -22,6 +22,8 @@ import shutdownRoutes from './routes/shutdowns.js';
 import fileRoutes from './routes/files.js';
 import checklistRoutes from './routes/checklist.js';
 import searchRoutes from './routes/search.js';
+import announcementRoutes from './routes/announcements.js';
+import procedureRoutes from './routes/procedures.js';
 import notificationRoutes from './routes/notifications.js';
 import calendarRoutes from './routes/calendar.js';
 import statsRoutes from './routes/stats.js';
@@ -58,6 +60,8 @@ app.use('/api/shutdowns', fileRoutes); // קבצים — לפני ה-routes הכ
 app.use('/api/shutdowns', checklistRoutes);
 app.use('/api/shutdowns', shutdownRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/announcements', announcementRoutes);
+app.use('/api/procedures', procedureRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/stats', statsRoutes);

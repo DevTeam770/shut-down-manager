@@ -37,11 +37,12 @@ const config = {
   backupHour: num(process.env.BACKUP_HOUR, 2), // שעת גיבוי לילי
   reminderHour: num(process.env.REMINDER_HOUR, 9), // שעת התזכורת היומית למי שטרם הגיב
   uploadDir: process.env.UPLOAD_DIR || path.join(rootDir, 'data', 'uploads'),
+  procedureDir: process.env.PROCEDURE_DIR || path.join(rootDir, 'data', 'procedures'),
   maxFileMb: num(process.env.MAX_FILE_MB, 25),
   maxFilesPerShutdown: num(process.env.MAX_FILES_PER_SHUTDOWN, 20)
 };
 
-for (const dir of [path.dirname(config.dbPath), config.backupDir, config.logDir, config.uploadDir]) {
+for (const dir of [path.dirname(config.dbPath), config.backupDir, config.logDir, config.uploadDir, config.procedureDir]) {
   fs.mkdirSync(dir, { recursive: true });
 }
 

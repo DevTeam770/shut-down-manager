@@ -26,8 +26,9 @@ export function isChatOpen(status) {
   return status !== 'completed' && status !== 'cancelled';
 }
 
-// שליפת השבתה עם כל ההקשר: קבוצה, יוצר, אישורים, סיכום
-export function getShutdownFull(id) {
+// שליפת השבתה עם כל ההקשר: קבוצה, יוצר, אישורים, סיכום.
+// viewerRole — כשאינו 'admin', פריטי צ'קליסט פרטיים (admin_only) מסוננים החוצה.
+export function getShutdownFull(id, viewerRole = 'admin') {
   const shutdown = db.prepare(
     `SELECT s.*, g.name AS group_name, u.display_name AS created_by_name
      FROM shutdowns s JOIN groups g ON g.id = s.group_id JOIN users u ON u.id = s.created_by
@@ -50,7 +51,8 @@ export function getShutdownFull(id) {
   const checklist = db.prepare(
     `SELECT c.*, u.display_name AS done_by_name FROM checklist_items c
      LEFT JOIN users u ON u.id = c.done_by
-     WHERE c.shutdown_id = ? ORDER BY c.phase, c.position, c.id`
+     WHERE c.shutdown_id = ? ${viewerRole === 'admin' ? '' : 'AND c.admin_only = 0'}
+     ORDER BY c.phase, c.position, c.id`
   ).all(id);
 
   const feedback = db.prepare(

@@ -27,6 +27,9 @@ function ensureColumn(table, column, ddl) {
 ensureColumn('users', 'token_version', `token_version INTEGER NOT NULL DEFAULT 0`);
 ensureColumn('users', 'email', `email TEXT DEFAULT ''`);
 ensureColumn('shutdowns', 'respond_by', `respond_by TEXT DEFAULT ''`);
+ensureColumn('shutdowns', 'doc_sent', `doc_sent INTEGER NOT NULL DEFAULT 0`);
+ensureColumn('approvals', 'impact_text', `impact_text TEXT DEFAULT ''`);
+ensureColumn('checklist_items', 'admin_only', `admin_only INTEGER NOT NULL DEFAULT 0`);
 
 // seed: משתמש admin ראשוני אם אין אף משתמש
 const userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
@@ -36,6 +39,14 @@ if (userCount === 0) {
     `INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, 'admin')`
   ).run('admin', hash, 'מנהל מערכת');
   logger.warn('נוצר משתמש admin ראשוני (admin / admin123) — יש להחליף סיסמא!');
+}
+
+// יצירה חד-פעמית של לינור — מנהלת מערכת (admin)
+if (!db.prepare('SELECT id FROM users WHERE username = ?').get('Linor')) {
+  db.prepare(
+    `INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, 'admin')`
+  ).run('Linor', bcrypt.hashSync('Linor123', 10), 'לינור');
+  logger.warn('נוצרה משתמשת Linor (Linor / Linor123) — מנהלת מערכת. יש להחליף סיסמא!');
 }
 
 export function audit(userId, action, entity, entityId, details = '') {
@@ -54,9 +65,11 @@ export function backupDatabase() {
   for (const old of files.slice(0, Math.max(0, files.length - 14))) {
     fs.unlinkSync(path.join(config.backupDir, old));
   }
-  // הקבצים המצורפים מסונכרנים לעותק יחיד (לא נשמרות גרסאות — הם לא משתנים, רק נוספים/נמחקים)
-  if (fs.existsSync(config.uploadDir)) {
-    fs.cpSync(config.uploadDir, path.join(config.backupDir, 'uploads'), { recursive: true, force: true });
+  // הקבצים המצורפים ונהלי ההשבתות מסונכרנים לעותק יחיד (רק נוספים/נמחקים)
+  for (const [src, name] of [[config.uploadDir, 'uploads'], [config.procedureDir, 'procedures']]) {
+    if (src && fs.existsSync(src)) {
+      fs.cpSync(src, path.join(config.backupDir, name), { recursive: true, force: true });
+    }
   }
   logger.info({ target }, 'גיבוי DB וקבצים הושלם');
   return target;

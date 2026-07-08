@@ -9,9 +9,10 @@ const PHASES = [
 
 // צ'קליסט משימות להשבתה: מנהל מוסיף/מוחק, כל חבר קבוצה מסמן ביצוע.
 // items מגיע מ-getShutdownFull; onChange מרענן את הדף (העדכון החי דרך shutdown:updated).
-export default function Checklist({ shutdownId, items, isManager, onChange }) {
+export default function Checklist({ shutdownId, items, isManager, isAdmin, onChange }) {
   const [newText, setNewText] = useState('');
   const [newPhase, setNewPhase] = useState('before');
+  const [newAdminOnly, setNewAdminOnly] = useState(false);
   const [error, setError] = useState('');
 
   if (!isManager && items.length === 0) return null;
@@ -23,8 +24,11 @@ export default function Checklist({ shutdownId, items, isManager, onChange }) {
     if (!newText.trim()) return;
     setError('');
     try {
-      await api.post(`/api/shutdowns/${shutdownId}/checklist`, { text: newText.trim(), phase: newPhase });
+      await api.post(`/api/shutdowns/${shutdownId}/checklist`, {
+        text: newText.trim(), phase: newPhase, admin_only: newAdminOnly
+      });
       setNewText('');
+      setNewAdminOnly(false);
       onChange?.();
     } catch (err) {
       setError(err.message);
@@ -76,6 +80,7 @@ export default function Checklist({ shutdownId, items, isManager, onChange }) {
                   <span style={item.done ? { textDecoration: 'line-through', color: 'var(--text-dim)' } : undefined}>
                     {item.text}
                   </span>
+                  {!!item.admin_only && <span className="badge badge-gray" title="גלוי רק למנהלי מערכת">🔒 פרטי</span>}
                   {!!item.done && item.done_by_name && (
                     <span className="muted" style={{ fontSize: '.78rem' }}>✔ {item.done_by_name}</span>
                   )}
@@ -101,6 +106,12 @@ export default function Checklist({ shutdownId, items, isManager, onChange }) {
             <option value="during">במהלך</option>
             <option value="after">אחרי</option>
           </select>
+          {isAdmin && (
+            <label className="row" style={{ gap: 4 }} title="הפריט יוצג רק למנהלי מערכת">
+              <input type="checkbox" checked={newAdminOnly} onChange={e => setNewAdminOnly(e.target.checked)} />
+              🔒 פרטי
+            </label>
+          )}
           <button className="btn btn-primary btn-sm" disabled={!newText.trim()}>+ הוספה</button>
         </form>
       )}
