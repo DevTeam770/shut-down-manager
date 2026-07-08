@@ -32,12 +32,12 @@ export default function Admin() {
   }, [tab]);
 
   const openNew = () => {
-    setForm({ username: '', password: '', display_name: '', role: 'user' });
+    setForm({ username: '', password: '', display_name: '', email: '', role: 'user' });
     setError('');
     setModal({ mode: 'new' });
   };
   const openEdit = (u) => {
-    setForm({ password: '', display_name: u.display_name, role: u.role });
+    setForm({ password: '', display_name: u.display_name, email: u.email || '', role: u.role });
     setError('');
     setModal({ mode: 'edit', user: u });
   };
@@ -49,7 +49,7 @@ export default function Admin() {
       if (modal.mode === 'new') {
         await api.post('/api/users', form);
       } else {
-        const body = { display_name: form.display_name, role: form.role };
+        const body = { display_name: form.display_name, email: form.email, role: form.role };
         if (form.password) body.password = form.password;
         await api.patch(`/api/users/${modal.user.id}`, body);
       }
@@ -158,6 +158,11 @@ export default function Admin() {
             <label className="field">
               <span>שם תצוגה</span>
               <input className="input" value={form.display_name} onChange={e => setForm(f => ({ ...f, display_name: e.target.value }))} required />
+            </label>
+            <label className="field">
+              <span>כתובת מייל (רשות — להתראות במייל כשה-SMTP מוגדר)</span>
+              <input className="input" type="email" dir="ltr" value={form.email}
+                onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
             </label>
             <label className="field">
               <span>{modal.mode === 'new' ? 'סיסמא' : 'איפוס סיסמא (השאירו ריק ללא שינוי)'}</span>

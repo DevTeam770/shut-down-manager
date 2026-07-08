@@ -4,6 +4,7 @@
 import db from '../db/db.js';
 import { verifyToken, isGroupMember } from '../middleware/auth.js';
 import { isChatOpen } from '../services/shutdowns.js';
+import { notifyUsers } from '../services/events.js';
 import logger from '../logger.js';
 
 function parseCookies(header = '') {
@@ -71,6 +72,23 @@ export default function setupSockets(io) {
       };
       io.to(`shutdown:${shutdownId}`).emit('chat:message', message);
       ack?.({ ok: true, id: message.id }); // חיווי "נמסר" לשולח
+
+      // אזכורים: @שם תצוגה של חבר קבוצה ⇦ התראה אישית למאוזכר
+      if (body.includes('@')) {
+        const members = db.prepare(
+          `SELECT u.id, u.display_name FROM group_members m JOIN users u ON u.id = m.user_id
+           WHERE m.group_id = ? AND u.id != ?`
+        ).all(shutdown.group_id, socket.user.id);
+        const mentioned = members.filter(u => body.includes(`@${u.display_name}`));
+        if (mentioned.length) {
+          const title = db.prepare('SELECT title FROM shutdowns WHERE id = ?').get(shutdownId).title;
+          notifyUsers(mentioned.map(u => u.id), {
+            kind: 'mention',
+            body: `💬 ${socket.user.display_name} איזכר/ה אותך בצ'אט של "${title}": ${body.slice(0, 80)}`,
+            shutdownId
+          });
+        }
+      }
     });
 
     // אינדיקציית הקלדה — לא נשמרת, רק משודרת לשאר החדר

@@ -1,6 +1,15 @@
 // גשר בין הלוגיקה העסקית ל-Socket.IO:
 // הודעות מערכת בצ'אט + התראות קופצות, עם התמדה ב-DB לפני שידור.
 import db from '../db/db.js';
+import { mailUsers } from './mailer.js';
+
+// סוגי התראות שנשלחים גם במייל (כשה-SMTP מוגדר)
+const MAIL_KINDS = {
+  new_shutdown: 'השבתה חדשה — נדרשת תגובתך',
+  date_changed: 'תאריך השבתה עודכן — נדרשת תגובתך',
+  date_final: 'תאריך השבתה נקבע סופית',
+  reminder: 'תזכורת: טרם הגבת להשבתה'
+};
 
 let io = null;
 export function setIo(instance) { io = instance; }
@@ -32,6 +41,8 @@ export function notifyUsers(userIds, { kind, body, shutdownId = null, payload = 
       ...payload
     });
   }
+  // מייל במקביל להתראה — רק לסוגים החשובים, ורק אם SMTP מוגדר
+  if (MAIL_KINDS[kind]) mailUsers(userIds, MAIL_KINDS[kind], body);
 }
 
 // כל חברי הקבוצה של השבתה, אופציונלית למעט משתמש (בד"כ מבצע הפעולה)
@@ -46,4 +57,10 @@ export function groupMemberIds(shutdownId, exceptUserId = null) {
 // עדכון חי של מצב ההשבתה לכל מי שצופה בדף שלה
 export function emitShutdownUpdate(shutdownId) {
   io?.to(`shutdown:${shutdownId}`).emit('shutdown:updated', { id: shutdownId });
+}
+
+// טריגר גלובלי לרענון באנר "השבתה בביצוע" — לכל המחוברים, כולל מבצע הפעולה.
+// לא נושא מידע; הקליינט מושך active-now שמסונן הרשאות בשרת.
+export function emitActiveChanged() {
+  io?.emit('active:changed');
 }

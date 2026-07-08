@@ -346,6 +346,34 @@ label.field > span { display: block; font-weight: 600; font-size: .88rem; margin
   border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px;
 }
 
+/* אזכורים בצ'אט */
+.mention { color: var(--primary); font-weight: 700; }
+.msg.mine .mention { color: #fff; text-decoration: underline; }
+.mention-picker {
+  position: absolute; bottom: 100%; right: 12px; margin-bottom: 4px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: var(--shadow-lg); z-index: 50;
+  min-width: 180px; overflow: hidden;
+}
+.mention-option { padding: 8px 12px; cursor: pointer; font-size: .9rem; }
+.mention-option:hover { background: var(--surface-2); }
+
+/* חיפוש גלובלי */
+.global-search { position: relative; width: 190px; }
+.global-search .input { padding: 6px 12px; font-size: .88rem; }
+.search-panel {
+  position: absolute; top: 42px; right: 0; width: min(400px, 92vw);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  max-height: 65vh; overflow-y: auto; z-index: 300;
+}
+.search-section {
+  padding: 6px 16px 2px; font-size: .76rem; font-weight: 700;
+  color: var(--text-dim); text-transform: uppercase;
+  background: var(--surface-2);
+}
+@media (max-width: 800px) { .global-search { width: 130px; } }
+
 /* stat tiles */
 .stat-tile { text-align: center; padding: 18px 8px; }
 .stat-tile .num { font-size: 2rem; font-weight: 800; }

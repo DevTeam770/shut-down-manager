@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   display_name TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
   token_version INTEGER NOT NULL DEFAULT 0,  -- עולה באיפוס סיסמא ⇦ מנתק את כל ההתחברויות
+  email TEXT DEFAULT '',                     -- אופציונלי, לשליחת התראות במייל (Exchange)
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -86,6 +87,28 @@ CREATE TABLE IF NOT EXISTS shutdown_reviews (
   lessons TEXT NOT NULL DEFAULT '',
   created_by INTEGER NOT NULL REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS checklist_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  shutdown_id INTEGER NOT NULL REFERENCES shutdowns(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  phase TEXT NOT NULL DEFAULT 'before' CHECK (phase IN ('before', 'during', 'after')),
+  done INTEGER NOT NULL DEFAULT 0,
+  done_by INTEGER REFERENCES users(id),
+  done_at TEXT,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_checklist_shutdown ON checklist_items(shutdown_id, phase, position);
+
+CREATE TABLE IF NOT EXISTS participant_feedback (
+  shutdown_id INTEGER NOT NULL REFERENCES shutdowns(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  score INTEGER NOT NULL CHECK (score BETWEEN 1 AND 10),
+  comment TEXT DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (shutdown_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS attachments (

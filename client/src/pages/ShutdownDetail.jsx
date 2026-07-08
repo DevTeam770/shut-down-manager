@@ -8,6 +8,8 @@ import Chat from '../components/Chat.jsx';
 import RespondButtons from '../components/RespondButtons.jsx';
 import Modal from '../components/Modal.jsx';
 import Attachments from '../components/Attachments.jsx';
+import Checklist from '../components/Checklist.jsx';
+import FeedbackCard from '../components/FeedbackCard.jsx';
 
 const RESPONSE_BADGE = { approved: 'badge-green', rejected: 'badge-red', conditional: 'badge-orange' };
 
@@ -201,6 +203,16 @@ export default function ShutdownDetail() {
             </div>
           )}
 
+          {/* צ'קליסט משימות */}
+          {!['cancelled'].includes(s.status) && (
+            <Checklist shutdownId={s.id} items={s.checklist || []} isManager={is_manager} onChange={load} />
+          )}
+
+          {/* משוב מכל המשתתפים — אחרי סיום */}
+          {s.status === 'completed' && (
+            <FeedbackCard shutdownId={s.id} feedback={s.feedback || []} avgFeedback={s.avg_feedback} onChange={load} />
+          )}
+
           {/* סיכום השבתה */}
           {s.status === 'completed' && (
             <div className="card" style={{ borderRight: '4px solid var(--green)' }}>
@@ -236,7 +248,7 @@ export default function ShutdownDetail() {
         </div>
 
         {/* עמודת צ'אט */}
-        <Chat shutdownId={s.id} chatOpen={chat_open} />
+        <Chat shutdownId={s.id} chatOpen={chat_open} members={s.members || []} />
       </div>
 
       {dateModal && (

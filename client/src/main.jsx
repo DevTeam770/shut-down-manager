@@ -11,6 +11,13 @@ import './styles/app.css';
 const savedTheme = localStorage.getItem('theme');
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 
+// PWA: רישום service worker בפרודקשן — התקנה כאפליקציה + עמידות לניתוקים רגעיים
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>

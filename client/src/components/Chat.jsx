@@ -9,7 +9,7 @@ import { fmtTime } from '../utils/format.js';
 // - הודעות חדשות ב-Socket.IO
 // - סנכרון אחרי ניתוק: ב-reconnect מושכים כל מה שאחרי ההודעה האחרונה שראינו
 // - הקלדה, נוכחות, קיבוץ הודעות רצופות, חיווי נמסר
-export default function Chat({ shutdownId, chatOpen }) {
+export default function Chat({ shutdownId, chatOpen, members = [] }) {
   const { socket, connected } = useSocket() || {};
   const { user } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -18,10 +18,14 @@ export default function Chat({ shutdownId, chatOpen }) {
   const [typing, setTyping] = useState(null);
   const [text, setText] = useState('');
   const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [searchResults, setSearchResults] = useState(null); // null = מצב חי
+  const [mentionOpen, setMentionOpen] = useState(false);
   const listRef = useRef(null);
   const lastIdRef = useRef(0);
   const typingTimer = useRef(null);
   const stickToBottom = useRef(true);
+  const inputRef = useRef(null);
 
   const scrollToBottom = useCallback(() => {
     const el = listRef.current;
@@ -126,14 +130,48 @@ export default function Chat({ shutdownId, chatOpen }) {
     const body = text.trim();
     if (!body || !socket) return;
     setText('');
+    setMentionOpen(false);
     socket.emit('chat:send', { shutdownId: Number(shutdownId), body }, (res) => {
       if (res?.error) setError(res.error);
     });
   };
 
   const onType = (e) => {
-    setText(e.target.value);
+    const val = e.target.value;
+    setText(val);
     socket?.emit('chat:typing', Number(shutdownId));
+    // פתיחת בורר אזכורים כשמקלידים @ בסוף המילה הנוכחית
+    const caret = e.target.selectionStart;
+    const before = val.slice(0, caret);
+    setMentionOpen(/@[^\s@]*$/.test(before) && members.length > 0);
+  };
+
+  const insertMention = (name) => {
+    setText(t => t.replace(/@[^\s@]*$/, `@${name} `));
+    setMentionOpen(false);
+    inputRef.current?.focus();
+  };
+
+  // חיפוש בהיסטוריית הצ'אט (debounce קצר); ריקון מחזיר לשידור חי
+  useEffect(() => {
+    if (!search.trim()) { setSearchResults(null); return; }
+    const t = setTimeout(() => {
+      api.get(`/api/shutdowns/${shutdownId}/messages?q=${encodeURIComponent(search.trim())}`)
+        .then(d => setSearchResults(d.messages))
+        .catch(() => setSearchResults([]));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search, shutdownId]);
+
+  // הדגשת אזכורים בגוף ההודעה
+  const renderBody = (body) => {
+    const parts = body.split(/(@[^\s@]+(?:\s[^\s@]+)?)/g);
+    return parts.map((p, i) => {
+      if (p.startsWith('@') && members.some(m => `@${m.display_name}` === p.trim())) {
+        return <strong key={i} className="mention">{p}</strong>;
+      }
+      return p;
+    });
   };
 
   // קיבוץ הודעות רצופות מאותו כותב (בטווח 3 דקות)
@@ -148,12 +186,34 @@ export default function Chat({ shutdownId, chatOpen }) {
     <div className="chat">
       <div className="chat-header">
         <strong>💬 חדר דיון</strong>
-        <span className="presence">
+        <span className="presence" style={{ flex: 1 }}>
           {presence.length > 0 && `מחוברים: ${presence.map(p => p.display_name).join(', ')}`}
         </span>
+        <input
+          className="input"
+          style={{ width: 150, padding: '4px 10px', fontSize: '.84rem' }}
+          placeholder="🔍 חיפוש בצ'אט"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
         {!connected && <span className="badge badge-orange">מנותק</span>}
       </div>
 
+      {searchResults !== null ? (
+        <div className="chat-messages">
+          <div className="row spread" style={{ marginBottom: 6 }}>
+            <span className="muted">{searchResults.length} תוצאות עבור "{search}"</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => setSearch('')}>✕ חזרה לשיחה</button>
+          </div>
+          {searchResults.map(m => (
+            <div className="msg theirs" key={m.id} style={{ maxWidth: '100%' }}>
+              <div className="meta"><strong>{m.display_name} · </strong>{fmtTime(m.created_at)}</div>
+              <div className="bubble">{m.body}</div>
+            </div>
+          ))}
+          {searchResults.length === 0 && <p className="muted" style={{ textAlign: 'center' }}>אין תוצאות</p>}
+        </div>
+      ) : (
       <div className="chat-messages" ref={listRef} onScroll={onScroll}>
         {hasMore && (
           <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'center', marginBottom: 8 }} onClick={loadOlder}>
@@ -173,22 +233,40 @@ export default function Chat({ shutdownId, chatOpen }) {
                   {fmtTime(m.created_at)}
                 </div>
               )}
-              <div className="bubble">{m.body}</div>
+              <div className="bubble">{renderBody(m.body)}</div>
             </div>
           )
         ))}
         {messages.length === 0 && <p className="muted" style={{ textAlign: 'center' }}>עדיין אין הודעות — פתחו את הדיון 🙂</p>}
       </div>
+      )}
 
       <div className="typing">{typing ? `${typing} מקליד/ה...` : ''}</div>
 
       {chatOpen ? (
-        <form className="chat-input" onSubmit={send}>
+        <form className="chat-input" onSubmit={send} style={{ position: 'relative' }}>
+          {mentionOpen && (
+            <div className="mention-picker">
+              {members
+                .filter(m => {
+                  const frag = (text.match(/@([^\s@]*)$/) || [])[1] || '';
+                  return m.id !== user.id && m.display_name.startsWith(frag);
+                })
+                .slice(0, 6)
+                .map(m => (
+                  <div key={m.id} className="mention-option" onMouseDown={e => { e.preventDefault(); insertMention(m.display_name); }}>
+                    @{m.display_name}
+                  </div>
+                ))}
+            </div>
+          )}
           <input
+            ref={inputRef}
             className="input"
             value={text}
             onChange={onType}
-            placeholder="כתיבת הודעה..."
+            onBlur={() => setTimeout(() => setMentionOpen(false), 150)}
+            placeholder="כתיבת הודעה... (@ לאזכור)"
             maxLength={2000}
           />
           <button className="btn btn-primary" disabled={!text.trim() || !connected}>שליחה</button>

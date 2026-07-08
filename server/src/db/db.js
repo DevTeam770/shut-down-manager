@@ -25,6 +25,7 @@ function ensureColumn(table, column, ddl) {
   }
 }
 ensureColumn('users', 'token_version', `token_version INTEGER NOT NULL DEFAULT 0`);
+ensureColumn('users', 'email', `email TEXT DEFAULT ''`);
 ensureColumn('shutdowns', 'respond_by', `respond_by TEXT DEFAULT ''`);
 
 // seed: משתמש admin ראשוני אם אין אף משתמש

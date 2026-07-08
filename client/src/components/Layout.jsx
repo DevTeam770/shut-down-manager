@@ -7,6 +7,7 @@ import { api } from '../api/client.js';
 import { fmtDateTime } from '../utils/format.js';
 import RespondButtons from './RespondButtons.jsx';
 import ActiveBanner from './ActiveBanner.jsx';
+import GlobalSearch from './GlobalSearch.jsx';
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -61,6 +62,7 @@ export default function Layout() {
           <NavLink to="/calendar">לוח שנה</NavLink>
           {user?.role === 'admin' && <NavLink to="/admin">ניהול</NavLink>}
         </nav>
+        <GlobalSearch />
         <button className="bell" onClick={openBell} title="התראות">
           🔔
           {unread > 0 && <span className="dot">{unread > 99 ? '99+' : unread}</span>}

@@ -4,7 +4,7 @@
 import db from '../db/db.js';
 import config from '../config.js';
 import logger from '../logger.js';
-import { systemMessage, notifyUsers, groupMemberIds } from './events.js';
+import { systemMessage, notifyUsers, groupMemberIds, emitActiveChanged } from './events.js';
 import { fmtDate } from './shutdowns.js';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -76,6 +76,7 @@ export function runAutoTransitions() {
     });
     logger.info({ shutdown: s.id }, 'השבתה החלה אוטומטית');
   }
+  if (starting.length) emitActiveChanged();
 
   // חריגה מזמן הסיום: התראה למנהלי הקבוצה (פעם ביום, לא סוגרים אוטומטית)
   const running = db.prepare(

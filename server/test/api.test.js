@@ -338,6 +338,92 @@ describe('קבצים מצורפים', () => {
   });
 });
 
+describe('שדרוגים בינוניים: באנר, צ׳קליסט, משוב, חיפושים, mailer', () => {
+  let sid3;
+
+  it('ביטול השבתה בביצוע מוריד אותה מ-active-now (תיקון הבאנר)', async () => {
+    const r = await manager.post('/api/shutdowns').send({
+      group_id: groupId, title: 'השבתה לביטול', proposed_date: '2027-07-07',
+      checklist: [{ text: 'לגבות קונפיגורציה', phase: 'before' }, { text: 'להרים שירותים', phase: 'after' }]
+    }).expect(201);
+    sid3 = r.body.shutdown.id;
+    expect(r.body.shutdown.checklist.length).toBe(2); // הצ'קליסט נוצר עם ההשבתה
+
+    const db = (await import('../src/db/db.js')).default;
+    db.prepare(`UPDATE shutdowns SET status = 'in_progress' WHERE id = ?`).run(sid3);
+    let active = await manager.get('/api/shutdowns/active-now').expect(200);
+    expect(active.body.active.some(a => a.id === sid3)).toBe(true);
+
+    await manager.patch(`/api/shutdowns/${sid3}`).send({ status: 'cancelled' }).expect(200);
+    active = await manager.get('/api/shutdowns/active-now').expect(200);
+    expect(active.body.active.some(a => a.id === sid3)).toBe(false);
+  });
+
+  it('צ׳קליסט: חבר מסמן ביצוע, רק מנהל מוסיף ומוחק', async () => {
+    const r = await manager.post('/api/shutdowns').send({
+      group_id: groupId, title: 'השבתה עם צ׳קליסט', proposed_date: '2027-08-08'
+    }).expect(201);
+    const sid = r.body.shutdown.id;
+
+    await member.post(`/api/shutdowns/${sid}/checklist`).send({ text: 'אסור לי', phase: 'before' }).expect(403);
+    const item = await manager.post(`/api/shutdowns/${sid}/checklist`)
+      .send({ text: 'לתאם עם ספק', phase: 'before' }).expect(201);
+
+    await member.patch(`/api/shutdowns/${sid}/checklist/${item.body.id}`).send({ done: true }).expect(200);
+    let full = await member.get(`/api/shutdowns/${sid}`).expect(200);
+    const it1 = full.body.shutdown.checklist.find(c => c.id === item.body.id);
+    expect(it1.done).toBe(1);
+    expect(it1.done_by_name).toBe('דנה');
+
+    await member.del(`/api/shutdowns/${sid}/checklist/${item.body.id}`).expect(403);
+    await manager.del(`/api/shutdowns/${sid}/checklist/${item.body.id}`).expect(200);
+  });
+
+  it('משוב: רק אחרי סיום, upsert, ממוצע מחושב', async () => {
+    // ההשבתה שהסתיימה מהבדיקות הקודמות (shutdownId הראשי הסתיימה כבר)
+    await member.post(`/api/shutdowns/${shutdownId}/feedback`).send({ score: 8, comment: 'עבר חלק' }).expect(200);
+    await member.post(`/api/shutdowns/${shutdownId}/feedback`).send({ score: 6, comment: 'עדכון' }).expect(200); // upsert
+    const r = await manager.post(`/api/shutdowns/${shutdownId}/feedback`).send({ score: 10 }).expect(200);
+    expect(r.body.shutdown.feedback.length).toBe(2);
+    expect(r.body.shutdown.avg_feedback).toBe(8); // (6+10)/2
+
+    // השבתה שעדיין לא הסתיימה — נדחה
+    await member.post(`/api/shutdowns/${sid3}/feedback`).send({ score: 5 }).expect(400);
+  });
+
+  it('חיפוש בהודעות צ׳אט (q)', async () => {
+    const r = await member.get(`/api/shutdowns/${shutdownId}/messages?q=אישר`).expect(200);
+    expect(r.body.messages.length).toBeGreaterThan(0);
+    expect(r.body.messages.every(m => m.body.includes('אישר'))).toBe(true);
+  });
+
+  it('חיפוש גלובלי מכבד הרשאות', async () => {
+    const r = await member.get('/api/search?q=מתגי').expect(200);
+    expect(r.body.shutdowns.length).toBeGreaterThan(0);
+    // משתמש זר — לא רואה כלום
+    const foreign = await outsider.get('/api/search?q=מתגי').expect(200);
+    expect(foreign.body.shutdowns.length).toBe(0);
+    expect(foreign.body.messages.length).toBe(0);
+  });
+
+  it('mailer כבוי כשאין SMTP_HOST (no-op בטוח)', async () => {
+    const { mailEnabled, mailUsers } = await import('../src/services/mailer.js');
+    expect(mailEnabled()).toBe(false);
+    expect(() => mailUsers([memberId], 'נושא', 'תוכן')).not.toThrow();
+  });
+
+  it('משתמש נוצר עם מייל ומתעדכן', async () => {
+    const r = await admin.post('/api/users')
+      .send({ username: 'mailuser', password: 'pass123', display_name: 'עם מייל', email: 'user@corp.local' })
+      .expect(201);
+    const upd = await admin.patch(`/api/users/${r.body.user.id}`).send({ email: 'new@corp.local' }).expect(200);
+    expect(upd.body.user).toBeTruthy();
+    await admin.post('/api/users')
+      .send({ username: 'badmail', password: 'pass123', display_name: 'רע', email: 'לא-מייל' })
+      .expect(400);
+  });
+});
+
 describe('צ׳אט והתראות', () => {
   it('הודעות מערכת נרשמו בצ׳אט לאורך התהליך', async () => {
     const r = await member.get(`/api/shutdowns/${shutdownId}/messages`).expect(200);

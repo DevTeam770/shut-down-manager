@@ -5,7 +5,7 @@ import { requireAuth, validate, isGroupManager, isGroupMember } from '../middlew
 import {
   getShutdownFull, canTransition, isChatOpen, resetApprovals, touch, fmtDate, STATUS_LABELS
 } from '../services/shutdowns.js';
-import { systemMessage, notifyUsers, groupMemberIds, emitShutdownUpdate } from '../services/events.js';
+import { systemMessage, notifyUsers, groupMemberIds, emitShutdownUpdate, emitActiveChanged } from '../services/events.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -89,9 +89,13 @@ router.post('/', validate(z.object({
   proposed_date: dateSchema,
   start_time: timeSchema,
   end_time: timeSchema,
-  respond_by: dateSchema.or(z.literal('')).default('')
+  respond_by: dateSchema.or(z.literal('')).default(''),
+  checklist: z.array(z.object({
+    text: z.string().trim().min(1).max(300),
+    phase: z.enum(['before', 'during', 'after']).default('before')
+  })).max(100).default([])
 })), (req, res) => {
-  const { group_id, title, description, proposed_date, start_time, end_time, respond_by } = req.body;
+  const { group_id, title, description, proposed_date, start_time, end_time, respond_by, checklist } = req.body;
   if (!db.prepare('SELECT id FROM groups WHERE id = ?').get(group_id)) {
     return res.status(404).json({ error: 'קבוצה לא נמצאה' });
   }
@@ -103,6 +107,12 @@ router.post('/', validate(z.object({
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(group_id, title, description, proposed_date, start_time, end_time, respond_by, req.user.id);
   const id = Number(info.lastInsertRowid);
+
+  // צ'קליסט התחלתי (למשל הועתק מתבנית של השבתה קודמת)
+  if (checklist.length) {
+    const ins = db.prepare('INSERT INTO checklist_items (shutdown_id, text, phase, position) VALUES (?, ?, ?, ?)');
+    checklist.forEach((item, i) => ins.run(id, item.text, item.phase, i + 1));
+  }
 
   audit(req.user.id, 'create_shutdown', 'shutdown', id, title);
   const deadlineTxt = respond_by ? ` (להגיב עד ${fmtDate(respond_by)})` : '';
@@ -251,6 +261,7 @@ router.patch('/:id', validate(z.object({
       body: `"${shutdown.title}" — ${statusMsgs[status]}`,
       shutdownId: shutdown.id
     });
+    emitActiveChanged(); // רענון הבאנר אצל כולם, כולל מבצע הפעולה
   }
 
   touch(shutdown.id);
@@ -349,20 +360,44 @@ router.post('/:id/review', validate(z.object({
   res.json({ shutdown: getShutdownFull(shutdown.id) });
 });
 
+// משוב אישי של משתתף — רק אחרי שההשבתה הסתיימה; ניתן לעדכן (upsert)
+router.post('/:id/feedback', validate(z.object({
+  score: z.number().int().min(1, 'ציון בין 1 ל-10').max(10, 'ציון בין 1 ל-10'),
+  comment: z.string().trim().max(1000).default('')
+})), (req, res) => {
+  const shutdown = loadShutdown(req, res);
+  if (!shutdown) return;
+  if (shutdown.status !== 'completed') {
+    return res.status(400).json({ error: 'ניתן לתת משוב רק אחרי שההשבתה הסתיימה' });
+  }
+  db.prepare(
+    `INSERT INTO participant_feedback (shutdown_id, user_id, score, comment) VALUES (?, ?, ?, ?)
+     ON CONFLICT(shutdown_id, user_id) DO UPDATE SET score = excluded.score, comment = excluded.comment`
+  ).run(shutdown.id, req.user.id, req.body.score, req.body.comment);
+  audit(req.user.id, 'feedback', 'shutdown', shutdown.id, `score=${req.body.score}`);
+  emitShutdownUpdate(shutdown.id);
+  res.json({ shutdown: getShutdownFull(shutdown.id) });
+});
+
 // היסטוריית צ'אט עם pagination (before_id לגלילה אחורה, after_id לסנכרון אחרי ניתוק)
+// פרמטר q — חיפוש טקסט בהודעות (עד 100 תוצאות)
 router.get('/:id/messages', (req, res) => {
   const shutdown = loadShutdown(req, res);
   if (!shutdown) return;
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const beforeId = Number(req.query.before_id) || null;
   const afterId = Number(req.query.after_id) || null;
+  const q = String(req.query.q || '').trim();
 
   let messages;
   const base = `
     SELECT m.*, COALESCE(u.display_name, 'מערכת') AS display_name
     FROM messages m LEFT JOIN users u ON u.id = m.user_id
     WHERE m.shutdown_id = ?`;
-  if (afterId) {
+  if (q) {
+    messages = db.prepare(`${base} AND m.body LIKE ? ORDER BY m.id DESC LIMIT 100`)
+      .all(shutdown.id, `%${q}%`).reverse();
+  } else if (afterId) {
     messages = db.prepare(`${base} AND m.id > ? ORDER BY m.id LIMIT ?`).all(shutdown.id, afterId, limit);
   } else if (beforeId) {
     messages = db.prepare(`${base} AND m.id < ? ORDER BY m.id DESC LIMIT ?`).all(shutdown.id, beforeId, limit).reverse();

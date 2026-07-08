@@ -20,6 +20,8 @@ import userRoutes from './routes/users.js';
 import groupRoutes from './routes/groups.js';
 import shutdownRoutes from './routes/shutdowns.js';
 import fileRoutes from './routes/files.js';
+import checklistRoutes from './routes/checklist.js';
+import searchRoutes from './routes/search.js';
 import notificationRoutes from './routes/notifications.js';
 import calendarRoutes from './routes/calendar.js';
 import statsRoutes from './routes/stats.js';
@@ -53,7 +55,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/shutdowns', fileRoutes); // קבצים — לפני ה-routes הכלליים של השבתות
+app.use('/api/shutdowns', checklistRoutes);
 app.use('/api/shutdowns', shutdownRoutes);
+app.use('/api/search', searchRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/stats', statsRoutes);

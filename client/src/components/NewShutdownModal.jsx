@@ -19,6 +19,7 @@ export default function NewShutdownModal({ groups, history = [], onClose, onCrea
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [conflicts, setConflicts] = useState([]);
+  const [checklist, setChecklist] = useState([]); // מועתק מהתבנית
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -35,7 +36,7 @@ export default function NewShutdownModal({ groups, history = [], onClose, onCrea
     setBusy(true);
     setError('');
     try {
-      const d = await api.post('/api/shutdowns', { ...form, group_id: Number(form.group_id) });
+      const d = await api.post('/api/shutdowns', { ...form, group_id: Number(form.group_id), checklist });
       onCreated?.();
       navigate(`/shutdowns/${d.shutdown.id}`);
     } catch (err) {
@@ -59,16 +60,22 @@ export default function NewShutdownModal({ groups, history = [], onClose, onCrea
             <select
               className="select"
               defaultValue=""
-              onChange={e => {
+              onChange={async e => {
                 const t = history.find(h => h.id === Number(e.target.value));
-                if (t) {
-                  setForm(f => ({
-                    ...f,
-                    title: t.title,
-                    description: t.description || '',
-                    start_time: t.start_time || '',
-                    end_time: t.end_time || ''
-                  }));
+                if (!t) { setChecklist([]); return; }
+                setForm(f => ({
+                  ...f,
+                  title: t.title,
+                  description: t.description || '',
+                  start_time: t.start_time || '',
+                  end_time: t.end_time || ''
+                }));
+                // העתקת הצ'קליסט של השבתת המקור (טקסט ושלב בלבד, ללא סימוני ביצוע)
+                try {
+                  const d = await api.get(`/api/shutdowns/${t.id}`);
+                  setChecklist((d.shutdown.checklist || []).map(c => ({ text: c.text, phase: c.phase })));
+                } catch {
+                  setChecklist([]);
                 }
               }}
             >
@@ -82,6 +89,11 @@ export default function NewShutdownModal({ groups, history = [], onClose, onCrea
                   </option>
                 ))}
             </select>
+            {checklist.length > 0 && (
+              <span className="muted" style={{ display: 'block', marginTop: 4 }}>
+                ✅ יועתקו גם {checklist.length} משימות צ'קליסט
+              </span>
+            )}
           </label>
         )}
         <label className="field">

@@ -14,12 +14,16 @@ export default function ActiveBanner() {
 
   useEffect(() => { load(); }, []);
 
-  // רענון כשמשהו משתנה (התראות סטטוס מגיעות לכל חברי הקבוצה)
+  // רענון בכל שינוי סטטוס בכל השבתה — האירוע הגלובלי מגיע גם למבצע הפעולה
   useEffect(() => {
     if (!socket) return;
     const onNotify = (n) => { if (n.kind === 'status' || n.kind === 'overdue_end') load(); };
     socket.on('notify', onNotify);
-    return () => socket.off('notify', onNotify);
+    socket.on('active:changed', load);
+    return () => {
+      socket.off('notify', onNotify);
+      socket.off('active:changed', load);
+    };
   }, [socket]);
 
   // עדכון הטיימר כל 30 שניות

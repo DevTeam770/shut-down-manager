@@ -47,11 +47,28 @@ export function getShutdownFull(id) {
 
   const review = db.prepare('SELECT * FROM shutdown_reviews WHERE shutdown_id = ?').get(id) || null;
 
+  const checklist = db.prepare(
+    `SELECT c.*, u.display_name AS done_by_name FROM checklist_items c
+     LEFT JOIN users u ON u.id = c.done_by
+     WHERE c.shutdown_id = ? ORDER BY c.phase, c.position, c.id`
+  ).all(id);
+
+  const feedback = db.prepare(
+    `SELECT f.*, u.display_name FROM participant_feedback f JOIN users u ON u.id = f.user_id
+     WHERE f.shutdown_id = ? ORDER BY f.created_at`
+  ).all(id);
+  const avgFeedback = feedback.length
+    ? Math.round((feedback.reduce((s, f) => s + f.score, 0) / feedback.length) * 10) / 10
+    : null;
+
   return {
     ...shutdown,
     approvals,
     members,
     review,
+    checklist,
+    feedback,
+    avg_feedback: avgFeedback,
     pending_count: members.length - approvals.length,
     approved_count: approvals.filter(a => a.response === 'approved').length
   };
