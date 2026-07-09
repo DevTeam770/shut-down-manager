@@ -514,6 +514,9 @@ router.get('/:id/document', (req, res) => {
 </body></html>`;
 
   res.set('Content-Type', 'text/html; charset=utf-8');
+  // CSP ייעודי לעמוד המסמך הבודד — מתיר את כפתור ההדפסה (onclick) שה-CSP הגלובלי חוסם
+  res.set('Content-Security-Policy',
+    "default-src 'self'; script-src 'unsafe-inline'; script-src-attr 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:");
   if (req.query.download) {
     res.set('Content-Disposition', `attachment; filename="shutdown-${s.id}.html"`);
   }
