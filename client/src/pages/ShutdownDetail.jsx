@@ -122,6 +122,18 @@ export default function ShutdownDetail() {
             </a>
           </>
         )}
+        {user.role === 'admin' && s.status === 'completed' && (
+          <>
+            <a className="btn btn-ghost btn-sm" href={`/api/shutdowns/${s.id}/summary-document`} target="_blank" rel="noreferrer"
+              title="מסמך סיכום נפרד: ציון, לקחים ומשוב המשתתפים — הנהלה בלבד">
+              📊 מסמך סיכום
+            </a>
+            <a className="btn btn-ghost btn-sm" href={`/api/shutdowns/${s.id}/summary-document?download=1`} download
+              title="הורדת מסמך הסיכום כקובץ">
+              ⬇️ הורדת סיכום
+            </a>
+          </>
+        )}
       </div>
 
       {s.description && <div className="card" style={{ whiteSpace: 'pre-wrap' }}>{s.description}</div>}
@@ -161,6 +173,7 @@ export default function ShutdownDetail() {
                 <div className="row spread">
                   <div className="row">
                     <strong>{a.display_name}</strong>
+                    {a.user_id === s.created_by && <span className="muted">(יוזם/ת ההשבתה)</span>}
                     <span className={`badge ${RESPONSE_BADGE[a.response]}`}>{RESPONSE_LABELS[a.response]}</span>
                     {a.response === 'conditional' && !!a.condition_resolved && <span className="badge badge-green">✔ התנאי נפתר</span>}
                   </div>
@@ -169,7 +182,8 @@ export default function ShutdownDetail() {
                   )}
                 </div>
                 {a.condition_text && <div className="muted">״{a.condition_text}״</div>}
-                {a.impact_text && <div className="muted">📋 משמעות: {a.impact_text}</div>}
+                {a.impact_text && <div className="muted">📋 משמעות (מחלקה): {a.impact_text}</div>}
+                {a.impact_general && <div className="muted">🌐 משמעות (כללית): {a.impact_general}</div>}
                 {a.alternative_date && (
                   <div className="row" style={{ marginTop: 4 }}>
                     <span className="badge badge-blue">📅 מציע/ה: {fmtDate(a.alternative_date)}</span>
@@ -232,8 +246,8 @@ export default function ShutdownDetail() {
             <FeedbackCard shutdownId={s.id} feedback={s.feedback || []} avgFeedback={s.avg_feedback} onChange={load} />
           )}
 
-          {/* סיכום השבתה */}
-          {s.status === 'completed' && (
+          {/* סיכום השבתה + ציון — הנהלה (admin) בלבד */}
+          {s.status === 'completed' && user.role === 'admin' && (
             <div className="card" style={{ borderRight: '4px solid var(--green)' }}>
               <div className="row spread">
                 <h2>📋 סיכום ההשבתה</h2>

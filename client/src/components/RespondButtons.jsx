@@ -3,27 +3,36 @@ import { api } from '../api/client.js';
 import Modal from './Modal.jsx';
 
 // שלושת כפתורי התגובה להשבתה:
-// ירוק = אישור (עם שדה "משמעות ההשבתה עליי") | אדום = דחייה | כתום = מותנה (תנאי חובה).
-// כולם כוללים שדה משמעות אופציונלי שמרוכז למסמך. במצב compact (התראה קופצת/דשבורד)
-// אישור הוא בלחיצה אחת מהירה; אפשר להוסיף משמעות אחר כך בדף ההשבתה.
+// ירוק = אישור | אדום = דחייה | כתום = מותנה (תנאי חובה).
+// בכל תגובה חובה למלא שתי משמעויות: ברמת המחלקה + כללית על כלל המערכת —
+// אי אפשר לשלוח בלי שתיהן. לכן גם אישור מהיר (compact) פותח את המודאל.
 export default function RespondButtons({ shutdownId, onDone, compact = false }) {
   const [modal, setModal] = useState(null); // 'approved' | 'rejected' | 'conditional'
   const [conditionText, setConditionText] = useState('');
-  const [impactText, setImpactText] = useState('');
+  const [impactText, setImpactText] = useState('');       // משמעות ברמת המחלקה
+  const [impactGeneral, setImpactGeneral] = useState('');  // משמעות כללית על כולם
   const [altDate, setAltDate] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const send = async (response, condition_text = '', alternative_date = '', impact_text = '') => {
+  const reset = () => {
+    setConditionText(''); setImpactText(''); setImpactGeneral(''); setAltDate('');
+  };
+
+  const send = async () => {
     setBusy(true);
     setError('');
     try {
-      await api.post(`/api/shutdowns/${shutdownId}/respond`, { response, condition_text, alternative_date, impact_text });
+      await api.post(`/api/shutdowns/${shutdownId}/respond`, {
+        response: modal,
+        condition_text: conditionText.trim(),
+        alternative_date: altDate,
+        impact_text: impactText.trim(),
+        impact_general: impactGeneral.trim()
+      });
       setModal(null);
-      setConditionText('');
-      setImpactText('');
-      setAltDate('');
-      onDone?.(response);
+      reset();
+      onDone?.(modal);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -33,20 +42,19 @@ export default function RespondButtons({ shutdownId, onDone, compact = false }) 
 
   const openModal = (kind) => {
     setError('');
-    setConditionText('');
-    setImpactText('');
-    setAltDate('');
+    reset();
     setModal(kind);
   };
 
   const btnCls = compact ? 'btn btn-sm' : 'btn';
   const titles = { approved: 'אישור ההשבתה', rejected: 'דחיית התאריך', conditional: 'אישור מותנה' };
+  const canSend = impactText.trim() && impactGeneral.trim() &&
+    (modal !== 'conditional' || conditionText.trim());
 
   return (
     <>
       <div className="row" style={{ gap: 8 }}>
-        <button className={`${btnCls} btn-green`} disabled={busy}
-          onClick={() => compact ? send('approved') : openModal('approved')}>
+        <button className={`${btnCls} btn-green`} disabled={busy} onClick={() => openModal('approved')}>
           ✓ מאשר/ת
         </button>
         <button className={`${btnCls} btn-red`} disabled={busy} onClick={() => openModal('rejected')}>
@@ -73,13 +81,22 @@ export default function RespondButtons({ shutdownId, onDone, compact = false }) 
             </label>
           )}
           <label className="field">
-            <span>משמעות ההשבתה עליי / על הצוות (רשות — ירוכז למסמך)</span>
+            <span>משמעות ההשבתה ברמת המחלקה שלי <b style={{ color: 'var(--red)' }}>(חובה)</b></span>
             <textarea
               className="textarea"
               autoFocus={modal === 'approved'}
               value={impactText}
               onChange={e => setImpactText(e.target.value)}
-              placeholder="לדוגמא: שירות הדוחות לא יהיה זמין ללקוחות בשעות ההשבתה"
+              placeholder="לדוגמא: שירות הדוחות לא יהיה זמין ללקוחות הצוות בשעות ההשבתה"
+            />
+          </label>
+          <label className="field">
+            <span>משמעות ההשבתה ברמה הכללית — על כלל המערכת/הארגון <b style={{ color: 'var(--red)' }}>(חובה)</b></span>
+            <textarea
+              className="textarea"
+              value={impactGeneral}
+              onChange={e => setImpactGeneral(e.target.value)}
+              placeholder="לדוגמא: אין השפעה חוצת-ארגון / כל משתמשי המערכת המרכזית ינותקו ל-30 דק'"
             />
           </label>
           {modal !== 'approved' && (
@@ -88,13 +105,14 @@ export default function RespondButtons({ shutdownId, onDone, compact = false }) 
               <input type="date" className="input" value={altDate} onChange={e => setAltDate(e.target.value)} />
             </label>
           )}
+          {!canSend && <div className="muted">יש למלא את שתי המשמעויות כדי לשלוח.</div>}
           {error && <div className="error-msg">{error}</div>}
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button className="btn btn-ghost" onClick={() => setModal(null)}>ביטול</button>
             <button
               className={`btn ${modal === 'approved' ? 'btn-green' : modal === 'conditional' ? 'btn-orange' : 'btn-red'}`}
-              disabled={busy || (modal === 'conditional' && !conditionText.trim())}
-              onClick={() => send(modal, conditionText.trim(), altDate, impactText.trim())}
+              disabled={busy || !canSend}
+              onClick={send}
             >
               שליחת תגובה
             </button>

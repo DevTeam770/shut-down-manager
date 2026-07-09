@@ -6,8 +6,11 @@ import { STATUS_LABELS } from '../services/shutdowns.js';
 const router = Router();
 router.use(requireAuth);
 
-// ייצוא CSV של היסטוריית ההשבתות (בהיקף הקבוצות של המשתמש; admin — הכול)
+// ייצוא CSV של היסטוריית ההשבתות — דוח הנהלה (admin) בלבד, כולל ציונים
 router.get('/export.csv', (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'ייצוא הדוח מוגבל להנהלה (מנהל מערכת)' });
+  }
   const base = `
     SELECT s.id, s.title, g.name AS group_name, s.proposed_date, s.start_time, s.end_time,
       s.status, s.is_final_date, u.display_name AS created_by_name,
@@ -56,9 +59,12 @@ router.get('/', (req, res) => {
     `SELECT status, COUNT(*) AS c FROM shutdowns s WHERE 1=1 ${scope} GROUP BY status`
   ).all();
 
-  const avgScore = db.prepare(
-    `SELECT ROUND(AVG(r.score), 1) AS avg FROM shutdown_reviews r JOIN shutdowns s ON s.id = r.shutdown_id WHERE 1=1 ${scope}`
-  ).get().avg;
+  // ציון ממוצע — דוח הנהלה (admin) בלבד
+  const avgScore = isAdmin
+    ? db.prepare(
+        `SELECT ROUND(AVG(r.score), 1) AS avg FROM shutdown_reviews r JOIN shutdowns s ON s.id = r.shutdown_id WHERE 1=1 ${scope}`
+      ).get().avg
+    : null;
 
   const byMonth = db.prepare(
     `SELECT substr(proposed_date, 1, 7) AS month, COUNT(*) AS c FROM shutdowns s

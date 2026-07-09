@@ -27,8 +27,10 @@ export function isChatOpen(status) {
 }
 
 // שליפת השבתה עם כל ההקשר: קבוצה, יוצר, אישורים, סיכום.
-// viewerRole — כשאינו 'admin', פריטי צ'קליסט פרטיים (admin_only) מסוננים החוצה.
-export function getShutdownFull(id, viewerRole = 'admin') {
+// viewerRole — כשאינו 'admin': פריטי צ'קליסט פרטיים (admin_only) מסוננים,
+//   וכן ציונים/דוחות (סיכום, משוב משתתפים, ממוצע) — הנהלה בלבד; משתמש רגיל רואה רק את המשוב שלו.
+export function getShutdownFull(id, viewerRole = 'admin', viewerId = null) {
+  const isAdmin = viewerRole === 'admin';
   const shutdown = db.prepare(
     `SELECT s.*, g.name AS group_name, u.display_name AS created_by_name
      FROM shutdowns s JOIN groups g ON g.id = s.group_id JOIN users u ON u.id = s.created_by
@@ -46,7 +48,10 @@ export function getShutdownFull(id, viewerRole = 'admin') {
      JOIN users u ON u.id = m.user_id WHERE m.group_id = ? ORDER BY u.display_name`
   ).all(shutdown.group_id);
 
-  const review = db.prepare('SELECT * FROM shutdown_reviews WHERE shutdown_id = ?').get(id) || null;
+  // ציון הסיכום — הנהלה (admin) בלבד
+  const review = isAdmin
+    ? (db.prepare('SELECT * FROM shutdown_reviews WHERE shutdown_id = ?').get(id) || null)
+    : null;
 
   const checklist = db.prepare(
     `SELECT c.*, u.display_name AS done_by_name FROM checklist_items c
@@ -55,12 +60,14 @@ export function getShutdownFull(id, viewerRole = 'admin') {
      ORDER BY c.phase, c.position, c.id`
   ).all(id);
 
-  const feedback = db.prepare(
+  // משוב המשתתפים והממוצע — הנהלה בלבד; משתמש רגיל מקבל רק את שורת המשוב שלו (לטעינת הטופס), בלי ממוצע.
+  const allFeedback = db.prepare(
     `SELECT f.*, u.display_name FROM participant_feedback f JOIN users u ON u.id = f.user_id
      WHERE f.shutdown_id = ? ORDER BY f.created_at`
   ).all(id);
-  const avgFeedback = feedback.length
-    ? Math.round((feedback.reduce((s, f) => s + f.score, 0) / feedback.length) * 10) / 10
+  const feedback = isAdmin ? allFeedback : allFeedback.filter(f => f.user_id === viewerId);
+  const avgFeedback = isAdmin && allFeedback.length
+    ? Math.round((allFeedback.reduce((s, f) => s + f.score, 0) / allFeedback.length) * 10) / 10
     : null;
 
   return {
@@ -76,9 +83,25 @@ export function getShutdownFull(id, viewerRole = 'admin') {
   };
 }
 
-// איפוס תגובות לסבב אישור חדש (אחרי שינוי תאריך)
+// אישור אוטומטי ליוזם ההשבתה — הוא הציע את התאריך ולכן פטור מאישור עצמי.
+// חל רק אם היוצר חבר בקבוצה (אחרת אינו נספר ממילא).
+export function autoApproveCreator(shutdownId) {
+  const s = db.prepare('SELECT created_by, group_id FROM shutdowns WHERE id = ?').get(shutdownId);
+  if (!s) return;
+  const isMember = db.prepare('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?')
+    .get(s.group_id, s.created_by);
+  if (!isMember) return;
+  db.prepare(
+    `INSERT INTO approvals (shutdown_id, user_id, response, condition_text, alternative_date, impact_text, impact_general, condition_resolved, responded_at)
+     VALUES (?, ?, 'approved', '', '', '', '', 0, datetime('now'))
+     ON CONFLICT(shutdown_id, user_id) DO NOTHING`
+  ).run(shutdownId, s.created_by);
+}
+
+// איפוס תגובות לסבב אישור חדש (אחרי שינוי תאריך) — היוזם נשאר מאושר אוטומטית
 export function resetApprovals(shutdownId) {
   db.prepare('DELETE FROM approvals WHERE shutdown_id = ?').run(shutdownId);
+  autoApproveCreator(shutdownId);
 }
 
 export function touch(shutdownId) {

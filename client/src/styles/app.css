@@ -38,9 +38,11 @@
   --orange: #ea580c;
   --orange-soft: #ffedd5;
 
-  --shadow: 0 1px 3px rgba(16, 24, 40, .08), 0 1px 2px rgba(16, 24, 40, .04);
-  --shadow-lg: 0 12px 32px rgba(16, 24, 40, .16);
-  --radius: 10px;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .05);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, .08), 0 2px 4px rgba(16, 24, 40, .04);
+  --shadow-lg: 0 16px 40px rgba(16, 24, 40, .16);
+  --radius: 12px;
+  --radius-sm: 8px;
 }
 
 [data-theme='dark'] {
@@ -62,8 +64,9 @@
   --orange: #f97316;
   --orange-soft: #7c2d12;
 
-  --shadow: 0 1px 3px rgba(0, 0, 0, .4);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, .5);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .35);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, .4);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, .5);
 }
 
 /* ============ בסיס ============ */
@@ -95,9 +98,11 @@ h3 { font-size: 1.05rem; }
 .topbar .brand { font-weight: 800; font-size: 1.1rem; display: flex; align-items: center; gap: 8px; }
 .topbar nav { display: flex; gap: 4px; flex: 1; }
 .topbar nav a {
-  padding: 8px 14px; border-radius: 8px; color: var(--text-dim); font-weight: 500;
+  padding: 8px 14px; border-radius: 8px; color: var(--text-dim); font-weight: 600;
+  transition: color .12s, background .12s;
 }
-.topbar nav a.active, .topbar nav a:hover { color: var(--text); background: var(--surface-2); }
+.topbar nav a:hover { color: var(--text); background: var(--surface-2); }
+.topbar nav a.active { color: var(--primary); background: var(--primary-soft); }
 .main { flex: 1; padding: 24px; max-width: 1200px; width: 100%; margin: 0 auto; }
 
 /* ============ רכיבים ============ */
@@ -107,8 +112,10 @@ h3 { font-size: 1.05rem; }
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 20px;
+  transition: box-shadow .18s, transform .18s;
 }
 .card + .card { margin-top: 16px; }
+.card h2:first-child { margin-top: 0; }
 
 .btn {
   font-family: var(--font);
@@ -121,12 +128,14 @@ h3 { font-size: 1.05rem; }
 .btn:hover { filter: brightness(.96); }
 .btn:active { transform: scale(.98); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
-.btn-primary { background: var(--primary); color: #fff; }
+.btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.btn-primary { background: var(--primary); color: #fff; box-shadow: 0 1px 2px rgba(37, 99, 235, .3); }
 .btn-primary:hover { background: var(--primary-hover); filter: none; }
-.btn-green { background: var(--green); color: #fff; }
-.btn-red { background: var(--red); color: #fff; }
-.btn-orange { background: var(--orange); color: #fff; }
+.btn-green { background: var(--green); color: #fff; box-shadow: 0 1px 2px rgba(22, 163, 74, .3); }
+.btn-red { background: var(--red); color: #fff; box-shadow: 0 1px 2px rgba(220, 38, 38, .3); }
+.btn-orange { background: var(--orange); color: #fff; box-shadow: 0 1px 2px rgba(234, 88, 12, .3); }
 .btn-ghost { background: transparent; border-color: var(--border); }
+.btn-ghost:hover { background: var(--surface-2); filter: none; }
 .btn-sm { padding: 5px 10px; font-size: .85rem; }
 
 .input, .select, .textarea {
@@ -286,9 +295,17 @@ label.field > span { display: block; font-weight: 600; font-size: .88rem; margin
 
 /* ============ טבלאות ============ */
 .table { width: 100%; border-collapse: collapse; }
-.table th, .table td { text-align: right; padding: 10px 12px; border-bottom: 1px solid var(--border); }
-.table th { color: var(--text-dim); font-size: .85rem; font-weight: 600; }
-.table tr:hover td { background: var(--surface-2); }
+.table th, .table td { text-align: right; padding: 13px 16px; border-bottom: 1px solid var(--border); }
+.table thead th {
+  color: var(--text-dim); font-size: .82rem; font-weight: 700;
+  text-transform: none; letter-spacing: .01em;
+  background: var(--surface-2); border-bottom: 1px solid var(--border);
+}
+.table thead th:first-child { border-start-start-radius: var(--radius); }
+.table thead th:last-child { border-start-end-radius: var(--radius); }
+.table tbody tr { transition: background .12s; }
+.table tbody tr:last-child td { border-bottom: none; }
+.table tbody tr:hover td { background: var(--surface-2); }
 
 /* ============ מודאל ============ */
 .modal-overlay {
@@ -405,10 +422,21 @@ label.field > span { display: block; font-weight: 600; font-size: .88rem; margin
 }
 @media (max-width: 800px) { .global-search { width: 130px; } }
 
-/* stat tiles */
-.stat-tile { text-align: center; padding: 18px 8px; }
-.stat-tile .num { font-size: 2rem; font-weight: 800; }
-.stat-tile .lbl { color: var(--text-dim); font-size: .85rem; }
+/* stat tiles — ריבועים אחידים, שווי גובה */
+.stat-tile {
+  text-align: center;
+  min-height: 132px;
+  padding: 20px 12px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  position: relative; overflow: hidden;
+}
+.stat-tile::before {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 4px;
+  background: linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 55%, transparent));
+}
+.stat-tile:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.stat-tile .num { font-size: 2.4rem; font-weight: 800; line-height: 1; }
+.stat-tile .lbl { color: var(--text-dim); font-size: .9rem; font-weight: 600; }
 
 @media (max-width: 640px) {
   .main { padding: 14px; }

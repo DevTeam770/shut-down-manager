@@ -73,7 +73,7 @@ export default function Dashboard() {
       <h1>שלום, {user.display_name} 👋</h1>
 
       {stats && (
-        <div className="grid-3" style={{ marginBottom: 16 }}>
+        <div className={user.role === 'admin' ? 'grid-3' : 'grid-2'} style={{ marginBottom: 16 }}>
           <div className="card stat-tile">
             <div className="num" style={{ color: 'var(--orange)' }}>{stats.pendingMine}</div>
             <div className="lbl">ממתינות לתגובתך</div>
@@ -82,10 +82,13 @@ export default function Dashboard() {
             <div className="num" style={{ color: 'var(--primary)' }}>{active.length}</div>
             <div className="lbl">השבתות פעילות</div>
           </div>
-          <div className="card stat-tile">
-            <div className="num" style={{ color: 'var(--green)' }}>{stats.avgScore ?? '—'}</div>
-            <div className="lbl">ציון ממוצע להשבתות</div>
-          </div>
+          {/* ציון ממוצע — דוח הנהלה (admin) בלבד */}
+          {user.role === 'admin' && (
+            <div className="card stat-tile">
+              <div className="num" style={{ color: 'var(--green)' }}>{stats.avgScore ?? '—'}</div>
+              <div className="lbl">ציון ממוצע להשבתות</div>
+            </div>
+          )}
         </div>
       )}
 
@@ -104,7 +107,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {stats?.byMonth?.length > 0 && (
+      {user.role === 'admin' && stats?.byMonth?.length > 0 && (
         <div className="card">
           <div className="row spread">
             <h2>השבתות לפי חודש</h2>

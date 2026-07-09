@@ -3,7 +3,7 @@ import { z } from 'zod';
 import db, { audit } from '../db/db.js';
 import { requireAuth, validate, isGroupManager, isGroupMember } from '../middleware/auth.js';
 import {
-  getShutdownFull, canTransition, isChatOpen, resetApprovals, touch, fmtDate, STATUS_LABELS
+  getShutdownFull, canTransition, isChatOpen, resetApprovals, autoApproveCreator, touch, fmtDate, STATUS_LABELS
 } from '../services/shutdowns.js';
 import { systemMessage, notifyUsers, groupMemberIds, emitShutdownUpdate, emitActiveChanged } from '../services/events.js';
 import { mailUsers } from '../services/mailer.js';
@@ -115,6 +115,9 @@ router.post('/', validate(z.object({
     checklist.forEach((item, i) => ins.run(id, item.text, item.phase, i + 1));
   }
 
+  // היוזם פטור מאישור עצמי — נספר כמאשר אוטומטית (אם הוא חבר בקבוצה)
+  autoApproveCreator(id);
+
   audit(req.user.id, 'create_shutdown', 'shutdown', id, title);
   const deadlineTxt = respond_by ? ` (להגיב עד ${fmtDate(respond_by)})` : '';
   systemMessage(id, `📢 ${req.user.display_name} פתח/ה השבתה חדשה: "${title}" בתאריך ${fmtDate(proposed_date)}${start_time ? ` בשעה ${start_time}` : ''}${deadlineTxt}`);
@@ -125,7 +128,7 @@ router.post('/', validate(z.object({
     payload: { needs_response: true, title, proposed_date }
   });
 
-  res.status(201).json({ shutdown: getShutdownFull(id, req.user.role) });
+  res.status(201).json({ shutdown: getShutdownFull(id, req.user.role, req.user.id) });
 });
 
 // פרטי השבתה מלאים
@@ -133,7 +136,7 @@ router.get('/:id', (req, res) => {
   const shutdown = loadShutdown(req, res);
   if (!shutdown) return;
   res.json({
-    shutdown: getShutdownFull(shutdown.id, req.user.role),
+    shutdown: getShutdownFull(shutdown.id, req.user.role, req.user.id),
     is_manager: isGroupManager(req.user.id, shutdown.group_id),
     chat_open: isChatOpen(shutdown.status)
   });
@@ -144,7 +147,9 @@ router.post('/:id/respond', validate(z.object({
   response: z.enum(['approved', 'rejected', 'conditional']),
   condition_text: z.string().trim().max(500).default(''),
   alternative_date: dateSchema.or(z.literal('')).default(''),
-  impact_text: z.string().trim().max(1000).default('') // משמעות ההשבתה על המשתמש
+  // שתי המשמעויות — חובה בכל תגובה: לא ניתן לשלוח בלי למלא את שתיהן
+  impact_text: z.string().trim().min(1, 'חובה למלא את משמעות ההשבתה ברמת המחלקה').max(1000),     // מחלקתי
+  impact_general: z.string().trim().min(1, 'חובה למלא את משמעות ההשבתה הכללית על כלל המערכת').max(1000) // כללי
 }).refine(d => d.response !== 'conditional' || d.condition_text.length > 0, {
   message: 'בתגובה מותנית חובה לפרט את התנאי ("תלוי ב...")'
 })), (req, res) => {
@@ -156,16 +161,17 @@ router.post('/:id/respond', validate(z.object({
   if (shutdown.is_final_date) {
     return res.status(400).json({ error: 'התאריך כבר נקבע כסופי' });
   }
-  const { response, condition_text, alternative_date, impact_text } = req.body;
+  const { response, condition_text, alternative_date, impact_text, impact_general } = req.body;
 
   db.prepare(
-    `INSERT INTO approvals (shutdown_id, user_id, response, condition_text, alternative_date, impact_text, condition_resolved, responded_at)
-     VALUES (?, ?, ?, ?, ?, ?, 0, datetime('now'))
+    `INSERT INTO approvals (shutdown_id, user_id, response, condition_text, alternative_date, impact_text, impact_general, condition_resolved, responded_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))
      ON CONFLICT(shutdown_id, user_id) DO UPDATE SET
        response = excluded.response, condition_text = excluded.condition_text,
        alternative_date = excluded.alternative_date, impact_text = excluded.impact_text,
+       impact_general = excluded.impact_general,
        condition_resolved = 0, responded_at = datetime('now')`
-  ).run(shutdown.id, req.user.id, response, condition_text, alternative_date, impact_text);
+  ).run(shutdown.id, req.user.id, response, condition_text, alternative_date, impact_text, impact_general);
   touch(shutdown.id);
   audit(req.user.id, 'respond', 'shutdown', shutdown.id, JSON.stringify(req.body));
 
@@ -193,7 +199,7 @@ router.post('/:id/respond', validate(z.object({
   // כשכל חברי הקבוצה הגיבו וכולם אישרו — ריכוז המשמעויות למסמך ושליחה למנהלי המערכת (לינור)
   maybeSendConsolidatedDoc(shutdown);
 
-  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role) });
+  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role, req.user.id) });
 });
 
 // בדיקה: כל חברי הקבוצה אישרו ⇦ שליחת המסמך המרוכז פעם אחת (doc_sent)
@@ -210,10 +216,12 @@ function maybeSendConsolidatedDoc(shutdown) {
   db.prepare('UPDATE shutdowns SET doc_sent = 1 WHERE id = ?').run(fresh.id);
 
   const approvals = db.prepare(
-    `SELECT a.impact_text, u.display_name FROM approvals a JOIN users u ON u.id = a.user_id
+    `SELECT a.impact_text, a.impact_general, u.display_name FROM approvals a JOIN users u ON u.id = a.user_id
      WHERE a.shutdown_id = ? ORDER BY u.display_name`
   ).all(fresh.id);
-  const lines = approvals.map(a => `• ${a.display_name}: ${a.impact_text || '(לא נכתבה משמעות)'}`).join('\n');
+  const lines = approvals.map(a =>
+    `• ${a.display_name}:\n    מחלקתי: ${a.impact_text || '—'}\n    כללי: ${a.impact_general || '—'}`
+  ).join('\n');
   const mailBody =
     `כל חברי הקבוצה אישרו את ההשבתה "${fresh.title}" בתאריך ${fmtDate(fresh.proposed_date)}.\n\n` +
     `משמעויות ההשבתה לפי המשתתפים:\n${lines}\n\n` +
@@ -306,7 +314,7 @@ router.patch('/:id', validate(z.object({
   touch(shutdown.id);
   audit(req.user.id, 'update_shutdown', 'shutdown', shutdown.id, JSON.stringify(req.body));
   emitShutdownUpdate(shutdown.id);
-  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role) });
+  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role, req.user.id) });
 });
 
 // אימוץ תאריך חלופי שהוצע ע"י משתמש — קיצור דרך לשינוי תאריך
@@ -339,7 +347,7 @@ router.post('/:id/adopt-date', validate(z.object({
     payload: { needs_response: true, title: shutdown.title, proposed_date: newDate }
   });
   emitShutdownUpdate(shutdown.id);
-  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role) });
+  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role, req.user.id) });
 });
 
 // סימון תנאי כנפתר (מנהל)
@@ -368,7 +376,7 @@ router.patch('/:id/approvals/:userId/resolve', (req, res) => {
     shutdownId: shutdown.id
   });
   emitShutdownUpdate(shutdown.id);
-  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role) });
+  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role, req.user.id) });
 });
 
 // סיכום השבתה: תקציר + ציון + לקחים (מנהל, אחרי סיום)
@@ -379,8 +387,8 @@ router.post('/:id/review', validate(z.object({
 })), (req, res) => {
   const shutdown = loadShutdown(req, res);
   if (!shutdown) return;
-  if (!isGroupManager(req.user.id, shutdown.group_id)) {
-    return res.status(403).json({ error: 'רק מנהל ההשבתה יכול לסכם' });
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'רק הנהלה (מנהל מערכת) יכולה לכתוב סיכום וציון' });
   }
   if (shutdown.status !== 'completed') {
     return res.status(400).json({ error: 'ניתן לסכם רק השבתה שהסתיימה' });
@@ -396,10 +404,11 @@ router.post('/:id/review', validate(z.object({
     body: `פורסם סיכום להשבתה "${shutdown.title}" — ציון ${score}/10`,
     shutdownId: shutdown.id
   });
-  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role) });
+  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role, req.user.id) });
 });
 
-// מסמך מרוכז מקצועי להדפסה/PDF/הורדה — אישורים, משמעויות, וסיכום (מנהל/admin).
+// מסמך מרוכז מקצועי להדפסה/PDF/הורדה — אישורים ומשמעויות בלבד (ללא ציונים). מנהל/admin.
+// הסיכום והציונים עברו למסמך נפרד: GET /:id/summary-document (admin בלבד).
 // ?download=1 מוריד כקובץ HTML; אחרת נפתח לצפייה עם כפתור הדפסה.
 router.get('/:id/document', (req, res) => {
   const shutdown = loadShutdown(req, res);
@@ -418,31 +427,16 @@ router.get('/:id/document', (req, res) => {
     const resp = a ? respLabels[a.response] : '⏳ טרם הגיב/ה';
     const color = a ? respColor[a.response] : '#64708a';
     const when = a?.responded_at ? new Date(a.responded_at.replace(' ', 'T') + 'Z').toLocaleString('he-IL') : '';
+    const impacts = a
+      ? `<div><b>מחלקתי:</b> ${esc(a.impact_text || '—')}</div><div><b>כללי:</b> ${esc(a.impact_general || '—')}</div>`
+      : '—';
     return `<tr${i % 2 ? ' class="alt"' : ''}>
       <td class="name">${esc(m.display_name)}</td>
       <td style="color:${color};font-weight:600;white-space:nowrap">${resp}</td>
-      <td>${esc(a?.impact_text || '—')}${a?.condition_text ? `<div class="cond">תנאי: ${esc(a.condition_text)}</div>` : ''}</td>
+      <td>${impacts}${a?.condition_text ? `<div class="cond">תנאי: ${esc(a.condition_text)}</div>` : ''}</td>
       <td class="when">${when}</td>
     </tr>`;
   }).join('');
-
-  // מקטע סיכום ומשוב — רק כשהושלמה וקיים סיכום/משוב
-  let summarySection = '';
-  if (s.review) {
-    summarySection += `
-    <h2>סיכום ההשבתה</h2>
-    <div class="summary-box">
-      <div class="score">ציון: <strong>${s.review.score}/10</strong></div>
-      ${s.review.summary ? `<p><b>תקציר:</b> ${esc(s.review.summary)}</p>` : ''}
-      ${s.review.lessons ? `<p><b>לקחים לשיפור:</b> ${esc(s.review.lessons)}</p>` : ''}
-    </div>`;
-  }
-  if (s.feedback?.length) {
-    const fb = s.feedback.map(f => `<tr><td class="name">${esc(f.display_name)}</td><td>${f.score}/10</td><td>${esc(f.comment || '—')}</td></tr>`).join('');
-    summarySection += `
-    <h2>משוב המשתתפים ${s.avg_feedback != null ? `(ממוצע ${s.avg_feedback}/10)` : ''}</h2>
-    <table><thead><tr><th>משתתף</th><th>ציון</th><th>הערה</th></tr></thead><tbody>${fb}</tbody></table>`;
-  }
 
   const html = `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
 <title>מסמך השבתה — ${esc(s.title)}</title>
@@ -503,7 +497,6 @@ router.get('/:id/document', (req, res) => {
     <thead><tr><th>משתתף</th><th>תגובה</th><th>משמעות ההשבתה עליו/עליה</th><th>מועד תגובה</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  ${summarySection}
 
   <div class="sign">
     <div class="line">חתימת מנהל/ת ההשבתה</div>
@@ -519,6 +512,100 @@ router.get('/:id/document', (req, res) => {
     "default-src 'self'; script-src 'unsafe-inline'; script-src-attr 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:");
   if (req.query.download) {
     res.set('Content-Disposition', `attachment; filename="shutdown-${s.id}.html"`);
+  }
+  res.send(html);
+});
+
+// מסמך סיכום נפרד — ציון, תקציר, לקחים ומשוב המשתתפים. הנהלה (admin) בלבד.
+// ?download=1 מוריד כקובץ HTML; אחרת נפתח לצפייה עם כפתור הדפסה.
+router.get('/:id/summary-document', (req, res) => {
+  const shutdown = loadShutdown(req, res);
+  if (!shutdown) return;
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'רק הנהלה (מנהל מערכת) יכולה לצפות במסמך הסיכום' });
+  }
+  const s = getShutdownFull(shutdown.id, 'admin');
+  const esc = (t) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+  const genTime = new Date().toLocaleString('he-IL');
+
+  const reviewBlock = s.review ? `
+    <h2>סיכום ההשבתה</h2>
+    <div class="summary-box">
+      <div class="score">ציון: ${s.review.score}/10</div>
+      ${s.review.summary ? `<p><b>תקציר:</b> ${esc(s.review.summary)}</p>` : ''}
+      ${s.review.lessons ? `<p><b>לקחים לשיפור עתידי:</b> ${esc(s.review.lessons)}</p>` : ''}
+    </div>` : `<h2>סיכום ההשבתה</h2><p>טרם נכתב סיכום.</p>`;
+
+  const fbRows = (s.feedback || []).map((f, i) =>
+    `<tr${i % 2 ? ' class="alt"' : ''}><td class="name">${esc(f.display_name)}</td><td>${f.score}/10</td><td>${esc(f.comment || '—')}</td></tr>`
+  ).join('');
+  const feedbackBlock = s.feedback?.length ? `
+    <h2>משוב המשתתפים ${s.avg_feedback != null ? `(ממוצע ${s.avg_feedback}/10)` : ''}</h2>
+    <table><thead><tr><th>משתתף</th><th>ציון</th><th>הערה</th></tr></thead><tbody>${fbRows}</tbody></table>`
+    : `<h2>משוב המשתתפים</h2><p>טרם התקבל משוב.</p>`;
+
+  const html = `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
+<title>מסמך סיכום — ${esc(s.title)}</title>
+<style>
+  @page { size: A4; margin: 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', 'Arial Hebrew', Arial, sans-serif; color: #1a2233; margin: 0; padding: 32px; background: #fff; line-height: 1.5; }
+  .sheet { max-width: 900px; margin: 0 auto; }
+  .doc-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #16a34a; padding-bottom: 14px; margin-bottom: 20px; }
+  .doc-header .brand { font-size: 15px; font-weight: 700; color: #16a34a; }
+  .doc-header h1 { margin: 0; font-size: 24px; }
+  .doc-header .gen { font-size: 12px; color: #64708a; }
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; background: #f4f6fa; border: 1px solid #dbe1ea; border-radius: 8px; padding: 14px 18px; margin-bottom: 22px; font-size: 14px; }
+  .meta-grid .k { color: #64708a; } .meta-grid .v { font-weight: 600; }
+  h2 { font-size: 17px; margin: 24px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #dbe1ea; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { border: 1px solid #dbe1ea; padding: 8px 10px; text-align: right; vertical-align: top; }
+  th { background: #eef1f6; font-weight: 700; }
+  tr.alt td { background: #fafbfd; }
+  td.name { font-weight: 600; white-space: nowrap; }
+  .summary-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 18px; }
+  .summary-box .score { font-size: 20px; font-weight: 800; color: #16a34a; margin-bottom: 8px; }
+  .sign { margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+  .sign .line { border-top: 1px solid #1a2233; padding-top: 6px; font-size: 13px; color: #64708a; }
+  .footer { margin-top: 32px; padding-top: 10px; border-top: 1px solid #dbe1ea; font-size: 11px; color: #93a0b8; text-align: center; }
+  .toolbar { text-align: center; margin-bottom: 20px; }
+  .toolbar button, .toolbar a { padding: 9px 18px; font-size: 14px; font-weight: 600; border-radius: 8px; border: 1px solid #16a34a; background: #16a34a; color: #fff; cursor: pointer; text-decoration: none; margin: 0 4px; }
+  .toolbar a.ghost { background: #fff; color: #16a34a; }
+  @media print { .toolbar { display: none; } body { padding: 0; } }
+</style></head><body>
+<div class="sheet">
+  <div class="toolbar">
+    <button onclick="window.print()">🖨️ הדפסה / שמירה כ-PDF</button>
+    <a class="ghost" href="?download=1">⬇️ הורדת קובץ</a>
+  </div>
+  <div class="doc-header">
+    <div>
+      <div class="brand">🔌 מערכת ניהול השבתות</div>
+      <h1>מסמך סיכום השבתה</h1>
+    </div>
+    <div class="gen">הופק: ${genTime}</div>
+  </div>
+  <div class="meta-grid">
+    <div><span class="k">כותרת:</span> <span class="v">${esc(s.title)}</span></div>
+    <div><span class="k">קבוצה:</span> <span class="v">${esc(s.group_name)}</span></div>
+    <div><span class="k">תאריך:</span> <span class="v">${fmtDate(s.proposed_date)}</span></div>
+    <div><span class="k">סטטוס:</span> <span class="v">${STATUS_LABELS[s.status] || s.status}</span></div>
+  </div>
+  ${reviewBlock}
+  ${feedbackBlock}
+  <div class="sign">
+    <div class="line">חתימת מנהל/ת המערכת</div>
+    <div class="line">חתימת הנהלה</div>
+  </div>
+  <div class="footer">מסמך זה הופק אוטומטית ממערכת ניהול ההשבתות · ${genTime}</div>
+</div>
+</body></html>`;
+
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.set('Content-Security-Policy',
+    "default-src 'self'; script-src 'unsafe-inline'; script-src-attr 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:");
+  if (req.query.download) {
+    res.set('Content-Disposition', `attachment; filename="shutdown-${s.id}-summary.html"`);
   }
   res.send(html);
 });
@@ -539,7 +626,7 @@ router.post('/:id/feedback', validate(z.object({
   ).run(shutdown.id, req.user.id, req.body.score, req.body.comment);
   audit(req.user.id, 'feedback', 'shutdown', shutdown.id, `score=${req.body.score}`);
   emitShutdownUpdate(shutdown.id);
-  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role) });
+  res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role, req.user.id) });
 });
 
 // היסטוריית צ'אט עם pagination (before_id לגלילה אחורה, after_id לסנכרון אחרי ניתוק)
