@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useConfirm } from '../context/ConfirmContext.jsx';
 import Modal from '../components/Modal.jsx';
 import { fmtDateTime } from '../utils/format.js';
 
@@ -15,12 +16,14 @@ const ACTION_LABELS = {
 // ניהול משתמשים — למנהלי מערכת (צוות פיתוח) בלבד
 export default function Admin() {
   const { user: me } = useAuth();
+  const confirm = useConfirm();
   const [users, setUsers] = useState(null);
   const [modal, setModal] = useState(null); // { mode: 'new' } | { mode: 'edit', user }
   const [form, setForm] = useState({});
   const [error, setError] = useState('');
   const [tab, setTab] = useState('users');
   const [auditEntries, setAuditEntries] = useState(null);
+  const [integrations, setIntegrations] = useState(null);
 
   const load = () => api.get('/api/users').then(d => setUsers(d.users)).catch(() => setUsers([]));
   useEffect(() => { load(); }, []);
@@ -28,6 +31,9 @@ export default function Admin() {
   useEffect(() => {
     if (tab === 'audit' && !auditEntries) {
       api.get('/api/audit').then(d => setAuditEntries(d.entries)).catch(() => setAuditEntries([]));
+    }
+    if (tab === 'integrations' && !integrations) {
+      api.get('/api/integration-status').then(d => setIntegrations(d.integrations)).catch(() => setIntegrations([]));
     }
   }, [tab]);
 
@@ -61,7 +67,7 @@ export default function Admin() {
   };
 
   const removeUser = async (u) => {
-    if (!confirm(`למחוק את המשתמש ${u.display_name}? פעולה זו אינה הפיכה.`)) return;
+    if (!await confirm({ title: 'מחיקת משתמש', body: `למחוק את המשתמש ${u.display_name}?`, danger: true, confirmLabel: 'מחיקה' })) return;
     try {
       await api.del(`/api/users/${u.id}`);
       load();
@@ -79,6 +85,7 @@ export default function Admin() {
           <h1 style={{ margin: 0 }}>ניהול</h1>
           <button className={`btn btn-sm ${tab === 'users' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('users')}>משתמשים</button>
           <button className={`btn btn-sm ${tab === 'audit' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('audit')}>יומן פעולות</button>
+          <button className={`btn btn-sm ${tab === 'integrations' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('integrations')}>חיבורים / רשת</button>
         </div>
         {tab === 'users' && <button className="btn btn-primary" onClick={openNew}>+ משתמש חדש</button>}
       </div>
@@ -107,6 +114,26 @@ export default function Admin() {
               </tbody>
             </table>
           )}
+        </div>
+      )}
+
+      {tab === 'integrations' && (
+        <div className="card">
+          <h2>🔌 חיבורים לרשת הסגורה</h2>
+          <p className="muted">סטטוס האינטגרציות החיצוניות. מה שכבוי יופעל ברשת הסגורה ע"י מילוי ההגדרות ב-server/.env (ראו README ו-docs/CLOSED-NETWORK.md).</p>
+          {!integrations ? <div className="skeleton" style={{ height: 120 }} /> : integrations.map(it => (
+            <div key={it.key} className="row spread" style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <div style={{ fontWeight: 700 }}>
+                  {it.enabled ? '✅' : '⬜'} {it.title}
+                </div>
+                <div className="muted">{it.note}</div>
+              </div>
+              <span className={`badge ${it.enabled ? 'badge-green' : 'badge-gray'}`}>
+                {it.enabled ? 'פעיל' : `כבוי · ${it.env}`}
+              </span>
+            </div>
+          ))}
         </div>
       )}
 

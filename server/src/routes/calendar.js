@@ -67,7 +67,10 @@ router.get('/shutdowns/:id/ics', requireAuth, (req, res) => {
   res.send(buildIcs([s]));
 });
 
-// פיד ICS של כל ההשבתות שלי — להוספה כ-Internet Calendar ב-Outlook
+// [INTEGRATION: closed-network] ייצוא/סנכרון ל-Outlook — פיד ICS של כל ההשבתות שלי.
+// זמין תמיד (אין תלות ברשת). ב-Outlook: File → Account Settings → Internet Calendars →
+// New → הדביקו את כתובת /api/calendar/my.ics (או webcal://). TODO עתידי: סנכרון דו-כיווני
+// מול Exchange פנימי (EWS/Graph) אם יידרש — כרגע ICS חד-כיווני מספיק.
 router.get('/my.ics', requireAuth, (req, res) => {
   const shutdowns = db.prepare(
     `SELECT s.*, g.name AS group_name FROM shutdowns s JOIN groups g ON g.id = s.group_id

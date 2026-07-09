@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
+import { useConfirm } from '../context/ConfirmContext.jsx';
 import { fmtDateTime } from '../utils/format.js';
 
 const ICONS = {
@@ -13,6 +14,7 @@ const fmtSize = (b) => b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)}MB` : `
 
 // עמוד נהלי השבתות: מצגות ומדריכים. כל המשתמשים צופים; מנהל מערכת מעלה ומוחק.
 export default function ProceduresPage() {
+  const confirm = useConfirm();
   const [docs, setDocs] = useState(null);
   const [canManage, setCanManage] = useState(false);
   const [title, setTitle] = useState('');
@@ -48,7 +50,7 @@ export default function ProceduresPage() {
   };
 
   const remove = async (doc) => {
-    if (!confirm(`למחוק את "${doc.title}"?`)) return;
+    if (!await confirm({ title: 'מחיקת נוהל', body: `למחוק את "${doc.title}"?`, danger: true, confirmLabel: 'מחיקה' })) return;
     try { await api.del(`/api/procedures/${doc.id}`); load(); }
     catch (err) { setError(err.message); }
   };

@@ -30,6 +30,8 @@ ensureColumn('shutdowns', 'respond_by', `respond_by TEXT DEFAULT ''`);
 ensureColumn('shutdowns', 'doc_sent', `doc_sent INTEGER NOT NULL DEFAULT 0`);
 ensureColumn('approvals', 'impact_text', `impact_text TEXT DEFAULT ''`);
 ensureColumn('checklist_items', 'admin_only', `admin_only INTEGER NOT NULL DEFAULT 0`);
+ensureColumn('messages', 'recipient_id', `recipient_id INTEGER`); // NULL=לכולם; אחרת הודעה פרטית
+ensureColumn('users', 'auth_source', `auth_source TEXT NOT NULL DEFAULT 'local'`); // local / ldap (רשת סגורה)
 
 // seed: משתמש admin ראשוני אם אין אף משתמש
 const userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;

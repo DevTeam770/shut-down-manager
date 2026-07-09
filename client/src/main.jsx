@@ -5,6 +5,7 @@ import App from './App.jsx';
 import { AuthProvider } from './context/AuthContext.jsx';
 import { SocketProvider } from './context/SocketContext.jsx';
 import { NotifyProvider } from './context/NotifyContext.jsx';
+import { ConfirmProvider } from './context/ConfirmContext.jsx';
 import './styles/app.css';
 
 // מצב תצוגה (בהיר/כהה) נשמר מקומית
@@ -24,7 +25,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <AuthProvider>
         <SocketProvider>
           <NotifyProvider>
-            <App />
+            <ConfirmProvider>
+              <App />
+            </ConfirmProvider>
           </NotifyProvider>
         </SocketProvider>
       </AuthProvider>

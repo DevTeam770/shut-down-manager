@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import { useConfirm } from '../context/ConfirmContext.jsx';
 
 export default function GroupDetail() {
   const { id } = useParams();
+  const confirm = useConfirm();
   const [data, setData] = useState(null);
   const [allUsers, setAllUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState('');
@@ -52,7 +54,7 @@ export default function GroupDetail() {
   };
 
   const removeMember = async (m) => {
-    if (!confirm(`להסיר את ${m.display_name} מהקבוצה?`)) return;
+    if (!await confirm({ title: 'הסרת חבר', body: `להסיר את ${m.display_name} מהקבוצה?`, danger: true, confirmLabel: 'הסרה' })) return;
     try {
       await api.del(`/api/groups/${id}/members/${m.id}`);
       load();

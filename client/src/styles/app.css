@@ -231,6 +231,13 @@ label.field > span { display: block; font-weight: 600; font-size: .88rem; margin
   background: transparent; border: 1px dashed var(--border);
   color: var(--text-dim); font-size: .85rem; border-radius: 8px;
 }
+.chat-recipient {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px 0; font-size: .82rem;
+}
+.chat-recipient .select { width: auto; padding: 4px 8px; font-size: .82rem; }
+.msg .bubble.private { border: 1px dashed var(--orange); background: var(--orange-soft); }
+.msg.mine .bubble.private { background: var(--orange); color: #fff; }
 .chat-input { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
 .chat-input .input { flex: 1; }
 .typing { font-size: .78rem; color: var(--text-dim); padding: 0 16px 6px; min-height: 20px; }
@@ -296,6 +303,15 @@ label.field > span { display: block; font-weight: 600; font-size: .88rem; margin
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
+/* ============ דיאלוג אישור ============ */
+.confirm-modal { width: min(440px, 92vw); }
+.confirm-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.confirm-head h2 { margin: 0; }
+.confirm-head.danger h2 { color: var(--red); }
+.confirm-icon { font-size: 1.6rem; }
+.confirm-body { margin: 0 0 4px; }
+.confirm-warning { color: var(--red); font-weight: 600; font-size: .9rem; margin: 4px 0 0; }
+
 /* ============ עמוד התחברות ============ */
 .auth-page {
   min-height: 100vh; display: flex; align-items: center; justify-content: center;
@@ -324,27 +340,42 @@ label.field > span { display: block; font-weight: 600; font-size: .88rem; margin
 
 /* גרף עמודות חודשי */
 .month-chart {
-  display: flex; align-items: stretch; gap: 10px;
-  height: 150px; padding: 8px 4px 0;
+  display: flex; gap: 8px; height: 190px; padding: 8px 4px 0;
+  direction: rtl;
 }
+.mc-yaxis {
+  display: flex; flex-direction: column; justify-content: space-between;
+  height: 150px; padding-bottom: 22px; /* מיישר לגובה אזור העמודות מעל תוויות החודש */
+}
+.mc-tick { display: flex; align-items: center; height: 0; }
+.mc-tick span { font-size: .72rem; color: var(--text-dim); transform: translateY(-50%); }
+.mc-plot { position: relative; flex: 1; min-width: 0; }
+.mc-grid {
+  position: absolute; inset: 0 0 22px 0;
+  display: flex; flex-direction: column; justify-content: space-between; pointer-events: none;
+}
+.mc-gridline { border-top: 1px dashed var(--border); height: 0; }
+.mc-cols { position: relative; display: flex; gap: 8px; height: 100%; }
 .mc-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.mc-value {
-  text-align: center; font-size: .78rem; font-weight: 600;
-  color: var(--text-dim); height: 18px;
+.mc-bar-area {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  height: 150px;
 }
-.mc-bar-area { flex: 1; display: flex; align-items: flex-end; justify-content: center; }
+.mc-value { font-size: .78rem; font-weight: 700; color: var(--text); margin-bottom: 3px; }
 .mc-bar {
-  width: min(38px, 70%);
-  background: var(--primary);
-  border-radius: 4px 4px 0 0; /* קצה נתון מעוגל, מעוגן לבסיס */
-  min-height: 0;
-  transition: height .4s ease;
+  width: min(40px, 66%);
+  background: linear-gradient(180deg, var(--primary), color-mix(in srgb, var(--primary) 78%, #000 0%));
+  border-radius: 5px 5px 0 0;
+  min-height: 3px;
+  box-shadow: 0 1px 2px rgba(37,99,235,.25);
+  transition: height .5s cubic-bezier(.2,.8,.2,1), background .15s;
 }
 .mc-col:hover .mc-bar { background: var(--primary-hover); }
 .mc-label {
-  text-align: center; font-size: .74rem; color: var(--text-dim);
-  border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px;
+  text-align: center; font-size: .74rem; color: var(--text-dim); font-weight: 600;
+  border-top: 1px solid var(--border); padding-top: 5px; margin-top: 2px; height: 22px;
 }
+@media (max-width: 640px) { .month-chart { overflow-x: auto; } .mc-cols { min-width: 320px; } }
 
 /* אזכורים בצ'אט */
 .mention { color: var(--primary); font-weight: 700; }

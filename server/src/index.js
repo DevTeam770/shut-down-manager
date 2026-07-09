@@ -28,6 +28,7 @@ import notificationRoutes from './routes/notifications.js';
 import calendarRoutes from './routes/calendar.js';
 import statsRoutes from './routes/stats.js';
 import auditRoutes from './routes/audit.js';
+import integrationRoutes from './routes/integration.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -66,6 +67,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/audit', auditRoutes);
+app.use('/api/integration-status', integrationRoutes);
 
 // בריאות המערכת — לניטור פנימי
 const startedAt = Date.now();

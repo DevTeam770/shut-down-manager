@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
+import { useConfirm } from '../context/ConfirmContext.jsx';
 import { fmtDate, STATUS_LABELS, STATUS_BADGE, RESPONSE_LABELS } from '../utils/format.js';
 import Chat from '../components/Chat.jsx';
 import RespondButtons from '../components/RespondButtons.jsx';
@@ -17,6 +18,7 @@ export default function ShutdownDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const { socket } = useSocket() || {};
+  const confirm = useConfirm();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [dateModal, setDateModal] = useState(false);
@@ -109,10 +111,16 @@ export default function ShutdownDetail() {
         <span className="muted">קבוצה: <Link to={`/groups/${s.group_id}`}>{s.group_name}</Link> · נפתחה ע"י {s.created_by_name}</span>
         <a className="btn btn-ghost btn-sm" href={`/api/calendar/shutdowns/${s.id}/ics`} download>📅 הוספה ל-Outlook</a>
         {is_manager && (
-          <a className="btn btn-ghost btn-sm" href={`/api/shutdowns/${s.id}/document`} target="_blank" rel="noreferrer"
-            title="מסמך מרוכז של כל האישורים והמשמעויות — להדפסה או שמירה כ-PDF">
-            📄 מסמך מרוכז
-          </a>
+          <>
+            <a className="btn btn-ghost btn-sm" href={`/api/shutdowns/${s.id}/document`} target="_blank" rel="noreferrer"
+              title="מסמך מרוכז של כל האישורים והמשמעויות — לצפייה, הדפסה או שמירה כ-PDF">
+              📄 מסמך מרוכז
+            </a>
+            <a className="btn btn-ghost btn-sm" href={`/api/shutdowns/${s.id}/document?download=1`} download
+              title="הורדת המסמך כקובץ">
+              ⬇️ הורדה
+            </a>
+          </>
         )}
       </div>
 
@@ -202,7 +210,11 @@ export default function ShutdownDetail() {
                 )}
                 <button
                   className="btn btn-ghost" style={{ color: 'var(--red)' }}
-                  onClick={() => confirm('לבטל את ההשבתה?') && patch({ status: 'cancelled' })}
+                  onClick={async () => {
+                    if (await confirm({ title: 'ביטול השבתה', body: `לבטל את ההשבתה "${s.title}"? כל המשתתפים יקבלו התראה.`, danger: true, confirmLabel: 'ביטול ההשבתה' })) {
+                      patch({ status: 'cancelled' });
+                    }
+                  }}
                 >
                   🚫 ביטול השבתה
                 </button>
@@ -255,7 +267,7 @@ export default function ShutdownDetail() {
         </div>
 
         {/* עמודת צ'אט */}
-        <Chat shutdownId={s.id} chatOpen={chat_open} members={s.members || []} />
+        <Chat shutdownId={s.id} chatOpen={chat_open} members={s.members || []} isManager={is_manager} />
       </div>
 
       {dateModal && (

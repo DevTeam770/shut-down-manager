@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import { useAuth } from '../context/AuthContext.jsx';
 import { fmtDate, STATUS_LABELS, STATUS_BADGE } from '../utils/format.js';
 import NewShutdownModal from '../components/NewShutdownModal.jsx';
 
 export default function Shutdowns() {
+  const { user } = useAuth();
   const [shutdowns, setShutdowns] = useState(null);
   const [groups, setGroups] = useState([]);
   const [filter, setFilter] = useState('active');
@@ -13,7 +15,10 @@ export default function Shutdowns() {
 
   const load = () => {
     api.get('/api/shutdowns').then(d => setShutdowns(d.shutdowns)).catch(() => setShutdowns([]));
-    api.get('/api/groups').then(d => setGroups(d.groups.filter(g => g.is_manager || false))).catch(() => {});
+    // מנהל מערכת (לינור) יכול ליצור השבתה בכל קבוצה; מנהל השבתה — רק בקבוצות שהוא מנהל
+    api.get('/api/groups').then(d =>
+      setGroups(user.role === 'admin' ? d.groups : d.groups.filter(g => g.is_manager))
+    ).catch(() => {});
   };
   useEffect(load, []);
 

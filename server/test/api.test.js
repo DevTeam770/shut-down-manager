@@ -506,6 +506,60 @@ describe('חבילת לינור: הודעות, צ׳קליסט פרטי, משמע
   });
 });
 
+describe('ליטוש: admin יוצר בכל קבוצה, מסמך, פרטי, אינטגרציות', () => {
+  it('מנהל מערכת יוצר השבתה בקבוצה שאינו חבר בה', async () => {
+    // admin אינו חבר ב-groupId (רק moshe+dana), ובכל זאת רשאי ליצור
+    const r = await admin.post('/api/shutdowns').send({
+      group_id: groupId, title: 'השבתה שיצר admin', proposed_date: '2027-11-11'
+    }).expect(201);
+    expect(r.body.shutdown.title).toBe('השבתה שיצר admin');
+  });
+
+  it('מסמך מרוכז: ?download=1 מחזיר Content-Disposition attachment', async () => {
+    const r = await manager.get(`/api/shutdowns/${shutdownId}/document?download=1`).expect(200);
+    expect(r.headers['content-disposition']).toContain('attachment');
+    expect(r.text).toContain('מסמך השבתה מרוכז');
+  });
+
+  it('הודעת צ׳אט פרטית נראית רק לשולח/נמען/admin', async () => {
+    const db = (await import('../src/db/db.js')).default;
+    // moshe (מנהל) שולח הודעה פרטית ל-dana
+    db.prepare(
+      `INSERT INTO messages (shutdown_id, user_id, body, type, recipient_id) VALUES (?, ?, ?, 'text', ?)`
+    ).run(shutdownId, managerId, 'סוד רק לדנה', memberId);
+
+    const asDana = await member.get(`/api/shutdowns/${shutdownId}/messages`).expect(200);
+    expect(asDana.body.messages.some(m => m.body === 'סוד רק לדנה')).toBe(true);
+    const asAdmin = await admin.get(`/api/shutdowns/${shutdownId}/messages`).expect(200);
+    expect(asAdmin.body.messages.some(m => m.body === 'סוד רק לדנה')).toBe(true);
+
+    // חבר שלישי לא רואה — נוסיף משתמש נוסף לקבוצה
+    const third = request.agent(app);
+    await third.post('/api/auth/register').send({ username: 'third1', password: 'pass123', display_name: 'שלישי' }).expect(201);
+    const tid = (await admin.get('/api/users?q=third1')).body.users[0].id;
+    await admin.post(`/api/groups/${groupId}/members`).send({ user_id: tid }).expect(201);
+    const asThird = await third.get(`/api/shutdowns/${shutdownId}/messages`).expect(200);
+    expect(asThird.body.messages.some(m => m.body === 'סוד רק לדנה')).toBe(false);
+  });
+
+  it('סטטוס אינטגרציות — admin בלבד, mail/directory כבויים בבדיקות', async () => {
+    await member.get('/api/integration-status').expect(403);
+    const r = await admin.get('/api/integration-status').expect(200);
+    const mail = r.body.integrations.find(i => i.key === 'mail');
+    const dir = r.body.integrations.find(i => i.key === 'directory');
+    expect(mail.enabled).toBe(false);
+    expect(dir.enabled).toBe(false);
+    expect(r.body.integrations.find(i => i.key === 'calendar').enabled).toBe(true);
+  });
+
+  it('directoryEnabled=false ללא LDAP_URL; התחברות מקומית עובדת', async () => {
+    const { directoryEnabled } = await import('../src/services/directory.js');
+    expect(directoryEnabled()).toBe(false);
+    const local = request.agent(app);
+    await local.post('/api/auth/login').send({ username: 'admin', password: 'admin123' }).expect(200);
+  });
+});
+
 describe('צ׳אט והתראות', () => {
   it('הודעות מערכת נרשמו בצ׳אט לאורך התהליך', async () => {
     const r = await member.get(`/api/shutdowns/${shutdownId}/messages`).expect(200);

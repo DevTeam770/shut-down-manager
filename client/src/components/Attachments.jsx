@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '../api/client.js';
+import { useConfirm } from '../context/ConfirmContext.jsx';
 import { fmtDateTime } from '../utils/format.js';
 
 const ICONS = {
@@ -15,6 +16,7 @@ const fmtSize = (b) =>
 // קבצים מצורפים להשבתה: העלאה למנהל השבתה/admin, הורדה לכל חברי הקבוצה.
 // מתרענן דרך shutdown:updated (ההורה קורא ל-load מחדש עם refreshKey).
 export default function Attachments({ shutdownId, refreshKey }) {
+  const confirm = useConfirm();
   const [files, setFiles] = useState([]);
   const [canManage, setCanManage] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -54,7 +56,7 @@ export default function Attachments({ shutdownId, refreshKey }) {
   };
 
   const removeFile = async (f) => {
-    if (!confirm(`למחוק את "${f.original_name}"?`)) return;
+    if (!await confirm({ title: 'מחיקת קובץ', body: `למחוק את "${f.original_name}"?`, danger: true, confirmLabel: 'מחיקה' })) return;
     try {
       await api.del(`/api/shutdowns/${shutdownId}/files/${f.id}`);
       load();

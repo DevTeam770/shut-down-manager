@@ -1,5 +1,6 @@
-// שליחת מייל דרך שרת SMTP פנימי (Exchange) — מופעל רק כש-SMTP_HOST מוגדר ב-.env.
-// ללא קונפיגורציה: no-op שקט, המערכת עובדת רגיל עם התראות באתר בלבד.
+// [INTEGRATION: closed-network] שליחת מייל דרך שרת SMTP פנימי (Exchange).
+// מופעל רק כש-SMTP_HOST מוגדר ב-.env. ללא קונפיגורציה: no-op שקט, והמערכת
+// עובדת רגיל עם התראות באתר בלבד. הפעלה = מילוי SMTP_HOST/PORT/FROM ב-.env בלבד.
 import nodemailer from 'nodemailer';
 import db from '../db/db.js';
 import logger from '../logger.js';

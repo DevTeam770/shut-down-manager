@@ -4,7 +4,9 @@ import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import db, { audit } from '../db/db.js';
 import config from '../config.js';
+import logger from '../logger.js';
 import { signToken, requireAuth, validate } from '../middleware/auth.js';
+import { directoryEnabled, authenticateViaDirectory, provisionUser } from '../services/directory.js';
 
 const router = Router();
 
@@ -46,8 +48,25 @@ router.post('/register', validate(credentialsSchema), (req, res) => {
   res.status(201).json({ user });
 });
 
-router.post('/login', loginLimiter, validate(credentialsSchema.pick({ username: true, password: true })), (req, res) => {
+router.post('/login', loginLimiter, validate(credentialsSchema.pick({ username: true, password: true })), async (req, res) => {
   const { username, password } = req.body;
+
+  // [INTEGRATION: closed-network] אימות מול Active Directory כשמוגדר (רדום עד מילוי LDAP_URL).
+  // בהצלחה — יצירה/עדכון משתמש מקומי (auto-provision) והנפקת JWT. כשל/כבוי — נפילה חלקה
+  // להתחברות מקומית (admin/לינור תמיד מקומיים).
+  if (directoryEnabled()) {
+    try {
+      const profile = await authenticateViaDirectory(username, password);
+      if (profile) {
+        const u = provisionUser(profile);
+        res.cookie('token', signToken(u), cookieOpts);
+        return res.json({ user: { id: u.id, username: u.username, display_name: u.display_name, role: u.role } });
+      }
+    } catch (e) {
+      logger.error({ err: e.message }, 'כשל אימות AD — נופל להתחברות מקומית');
+    }
+  }
+
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: 'שם משתמש או סיסמא שגויים' });

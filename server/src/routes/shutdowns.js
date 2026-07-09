@@ -399,7 +399,8 @@ router.post('/:id/review', validate(z.object({
   res.json({ shutdown: getShutdownFull(shutdown.id, req.user.role) });
 });
 
-// מסמך מרוכז להדפסה/PDF — כל המשמעויות והאישורים בעמוד אחד (מנהל/admin)
+// מסמך מרוכז מקצועי להדפסה/PDF/הורדה — אישורים, משמעויות, וסיכום (מנהל/admin).
+// ?download=1 מוריד כקובץ HTML; אחרת נפתח לצפייה עם כפתור הדפסה.
 router.get('/:id/document', (req, res) => {
   const shutdown = loadShutdown(req, res);
   if (!shutdown) return;
@@ -407,44 +408,116 @@ router.get('/:id/document', (req, res) => {
     return res.status(403).json({ error: 'רק מנהל השבתה או מנהל מערכת יכולים לצפות במסמך' });
   }
   const s = getShutdownFull(shutdown.id, 'admin');
-  const esc = (t) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const respLabels = { approved: 'אישר/ה', rejected: 'דחה/תה', conditional: 'מותנה' };
-  const rows = s.members.map(m => {
+  const esc = (t) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+  const respLabels = { approved: '✓ אישר/ה', rejected: '✗ דחה/תה', conditional: '~ מותנה' };
+  const respColor = { approved: '#16a34a', rejected: '#dc2626', conditional: '#ea580c' };
+  const genTime = new Date().toLocaleString('he-IL');
+
+  const rows = s.members.map((m, i) => {
     const a = s.approvals.find(x => x.user_id === m.id);
-    return `<tr>
-      <td>${esc(m.display_name)}</td>
-      <td>${a ? respLabels[a.response] : 'טרם הגיב/ה'}</td>
-      <td>${esc(a?.impact_text || '')}</td>
-      <td>${a?.responded_at ? esc(a.responded_at) : ''}</td>
+    const resp = a ? respLabels[a.response] : '⏳ טרם הגיב/ה';
+    const color = a ? respColor[a.response] : '#64708a';
+    const when = a?.responded_at ? new Date(a.responded_at.replace(' ', 'T') + 'Z').toLocaleString('he-IL') : '';
+    return `<tr${i % 2 ? ' class="alt"' : ''}>
+      <td class="name">${esc(m.display_name)}</td>
+      <td style="color:${color};font-weight:600;white-space:nowrap">${resp}</td>
+      <td>${esc(a?.impact_text || '—')}${a?.condition_text ? `<div class="cond">תנאי: ${esc(a.condition_text)}</div>` : ''}</td>
+      <td class="when">${when}</td>
     </tr>`;
   }).join('');
 
-  res.set('Content-Type', 'text/html; charset=utf-8');
-  res.send(`<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
+  // מקטע סיכום ומשוב — רק כשהושלמה וקיים סיכום/משוב
+  let summarySection = '';
+  if (s.review) {
+    summarySection += `
+    <h2>סיכום ההשבתה</h2>
+    <div class="summary-box">
+      <div class="score">ציון: <strong>${s.review.score}/10</strong></div>
+      ${s.review.summary ? `<p><b>תקציר:</b> ${esc(s.review.summary)}</p>` : ''}
+      ${s.review.lessons ? `<p><b>לקחים לשיפור:</b> ${esc(s.review.lessons)}</p>` : ''}
+    </div>`;
+  }
+  if (s.feedback?.length) {
+    const fb = s.feedback.map(f => `<tr><td class="name">${esc(f.display_name)}</td><td>${f.score}/10</td><td>${esc(f.comment || '—')}</td></tr>`).join('');
+    summarySection += `
+    <h2>משוב המשתתפים ${s.avg_feedback != null ? `(ממוצע ${s.avg_feedback}/10)` : ''}</h2>
+    <table><thead><tr><th>משתתף</th><th>ציון</th><th>הערה</th></tr></thead><tbody>${fb}</tbody></table>`;
+  }
+
+  const html = `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
 <title>מסמך השבתה — ${esc(s.title)}</title>
 <style>
-  body { font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; color: #1a2233; }
-  h1 { margin-bottom: 4px; } .meta { color: #555; margin-bottom: 20px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-  th, td { border: 1px solid #cbd2dd; padding: 8px 10px; text-align: right; vertical-align: top; }
-  th { background: #eef1f6; }
-  .print-btn { margin: 16px 0; padding: 8px 16px; font-size: 15px; cursor: pointer; }
-  @media print { .print-btn { display: none; } }
+  @page { size: A4; margin: 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', 'Arial Hebrew', Arial, sans-serif; color: #1a2233; margin: 0; padding: 32px; background: #fff; line-height: 1.5; }
+  .sheet { max-width: 900px; margin: 0 auto; }
+  .doc-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #2563eb; padding-bottom: 14px; margin-bottom: 20px; }
+  .doc-header .brand { font-size: 15px; font-weight: 700; color: #2563eb; }
+  .doc-header h1 { margin: 0; font-size: 24px; }
+  .doc-header .gen { font-size: 12px; color: #64708a; }
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; background: #f4f6fa; border: 1px solid #dbe1ea; border-radius: 8px; padding: 14px 18px; margin-bottom: 22px; font-size: 14px; }
+  .meta-grid .k { color: #64708a; } .meta-grid .v { font-weight: 600; }
+  .status-pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  h2 { font-size: 17px; margin: 24px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #dbe1ea; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { border: 1px solid #dbe1ea; padding: 8px 10px; text-align: right; vertical-align: top; }
+  th { background: #eef1f6; font-weight: 700; }
+  tr.alt td { background: #fafbfd; }
+  td.name { font-weight: 600; white-space: nowrap; }
+  td.when { color: #64708a; font-size: 12px; white-space: nowrap; }
+  .cond { color: #ea580c; font-size: 12px; margin-top: 3px; }
+  .summary-box { background: #f4f6fa; border: 1px solid #dbe1ea; border-radius: 8px; padding: 14px 18px; }
+  .summary-box .score { font-size: 16px; margin-bottom: 6px; }
+  .sign { margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+  .sign .line { border-top: 1px solid #1a2233; padding-top: 6px; font-size: 13px; color: #64708a; }
+  .footer { margin-top: 32px; padding-top: 10px; border-top: 1px solid #dbe1ea; font-size: 11px; color: #93a0b8; text-align: center; }
+  .toolbar { text-align: center; margin-bottom: 20px; }
+  .toolbar button, .toolbar a { padding: 9px 18px; font-size: 14px; font-weight: 600; border-radius: 8px; border: 1px solid #2563eb; background: #2563eb; color: #fff; cursor: pointer; text-decoration: none; margin: 0 4px; }
+  .toolbar a.ghost { background: #fff; color: #2563eb; }
+  @media print { .toolbar { display: none; } body { padding: 0; } }
 </style></head><body>
-  <h1>מסמך השבתה מרוכז</h1>
-  <div class="meta">
-    <strong>${esc(s.title)}</strong> · קבוצה: ${esc(s.group_name)}<br>
-    תאריך מתוכנן: ${fmtDate(s.proposed_date)}${s.start_time ? ` ${esc(s.start_time)}${s.end_time ? '–' + esc(s.end_time) : ''}` : ''}
-    ${s.is_final_date ? ' (סופי)' : ' (מוצע)'}<br>
-    ${s.description ? 'תיאור: ' + esc(s.description) + '<br>' : ''}
-    אישרו: ${s.approved_count}/${s.members.length}
+<div class="sheet">
+  <div class="toolbar">
+    <button onclick="window.print()">🖨️ הדפסה / שמירה כ-PDF</button>
+    <a class="ghost" href="?download=1">⬇️ הורדת קובץ</a>
   </div>
-  <button class="print-btn" onclick="window.print()">🖨️ הדפסה / שמירה כ-PDF</button>
+  <div class="doc-header">
+    <div>
+      <div class="brand">🔌 מערכת ניהול השבתות</div>
+      <h1>מסמך השבתה מרוכז</h1>
+    </div>
+    <div class="gen">הופק: ${genTime}</div>
+  </div>
+  <div class="meta-grid">
+    <div><span class="k">כותרת:</span> <span class="v">${esc(s.title)}</span></div>
+    <div><span class="k">קבוצה:</span> <span class="v">${esc(s.group_name)}</span></div>
+    <div><span class="k">תאריך מתוכנן:</span> <span class="v">${fmtDate(s.proposed_date)}${s.start_time ? ` ${esc(s.start_time)}${s.end_time ? '–' + esc(s.end_time) : ''}` : ''}</span></div>
+    <div><span class="k">קביעות:</span> <span class="status-pill" style="background:${s.is_final_date ? '#dcfce7' : '#ffedd5'};color:${s.is_final_date ? '#16a34a' : '#ea580c'}">${s.is_final_date ? 'תאריך סופי' : 'תאריך מוצע'}</span></div>
+    <div><span class="k">נפתחה ע"י:</span> <span class="v">${esc(s.created_by_name)}</span></div>
+    <div><span class="k">אישרו:</span> <span class="v">${s.approved_count}/${s.members.length}</span></div>
+    ${s.description ? `<div style="grid-column:1/-1"><span class="k">תיאור:</span> <span class="v">${esc(s.description)}</span></div>` : ''}
+  </div>
+
+  <h2>אישורים ומשמעויות</h2>
   <table>
     <thead><tr><th>משתתף</th><th>תגובה</th><th>משמעות ההשבתה עליו/עליה</th><th>מועד תגובה</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
-</body></html>`);
+  ${summarySection}
+
+  <div class="sign">
+    <div class="line">חתימת מנהל/ת ההשבתה</div>
+    <div class="line">חתימת מנהל/ת המערכת</div>
+  </div>
+  <div class="footer">מסמך זה הופק אוטומטית ממערכת ניהול ההשבתות · ${genTime}</div>
+</div>
+</body></html>`;
+
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  if (req.query.download) {
+    res.set('Content-Disposition', `attachment; filename="shutdown-${s.id}.html"`);
+  }
+  res.send(html);
 });
 
 // משוב אישי של משתתף — רק אחרי שההשבתה הסתיימה; ניתן לעדכן (upsert)
@@ -476,11 +549,16 @@ router.get('/:id/messages', (req, res) => {
   const afterId = Number(req.query.after_id) || null;
   const q = String(req.query.q || '').trim();
 
+  // סינון נראות הודעות פרטיות: מוצגות רק לשולח, לנמען ולמנהלי מערכת
+  const vis = req.user.role === 'admin'
+    ? ''
+    : `AND (m.recipient_id IS NULL OR m.recipient_id = ${Number(req.user.id)} OR m.user_id = ${Number(req.user.id)})`;
+
   let messages;
   const base = `
-    SELECT m.*, COALESCE(u.display_name, 'מערכת') AS display_name
+    SELECT m.*, COALESCE(u.display_name, 'מערכת') AS display_name, u.role AS role
     FROM messages m LEFT JOIN users u ON u.id = m.user_id
-    WHERE m.shutdown_id = ?`;
+    WHERE m.shutdown_id = ? ${vis}`;
   if (q) {
     messages = db.prepare(`${base} AND m.body LIKE ? ORDER BY m.id DESC LIMIT 100`)
       .all(shutdown.id, `%${q}%`).reverse();

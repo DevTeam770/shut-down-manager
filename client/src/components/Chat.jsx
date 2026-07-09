@@ -9,7 +9,7 @@ import { fmtTime } from '../utils/format.js';
 // - הודעות חדשות ב-Socket.IO
 // - סנכרון אחרי ניתוק: ב-reconnect מושכים כל מה שאחרי ההודעה האחרונה שראינו
 // - הקלדה, נוכחות, קיבוץ הודעות רצופות, חיווי נמסר
-export default function Chat({ shutdownId, chatOpen, members = [] }) {
+export default function Chat({ shutdownId, chatOpen, members = [], isManager = false }) {
   const { socket, connected } = useSocket() || {};
   const { user } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -21,6 +21,7 @@ export default function Chat({ shutdownId, chatOpen, members = [] }) {
   const [search, setSearch] = useState('');
   const [searchResults, setSearchResults] = useState(null); // null = מצב חי
   const [mentionOpen, setMentionOpen] = useState(false);
+  const [recipient, setRecipient] = useState(''); // '' = לכולם; אחרת id נמען (הודעה פרטית, למנהל)
   const listRef = useRef(null);
   const lastIdRef = useRef(0);
   const typingTimer = useRef(null);
@@ -131,7 +132,11 @@ export default function Chat({ shutdownId, chatOpen, members = [] }) {
     if (!body || !socket) return;
     setText('');
     setMentionOpen(false);
-    socket.emit('chat:send', { shutdownId: Number(shutdownId), body }, (res) => {
+    socket.emit('chat:send', {
+      shutdownId: Number(shutdownId),
+      body,
+      recipientId: recipient ? Number(recipient) : null
+    }, (res) => {
       if (res?.error) setError(res.error);
     });
   };
@@ -230,10 +235,14 @@ export default function Chat({ shutdownId, chatOpen, members = [] }) {
               {m.showHeader && (
                 <div className="meta">
                   {m.user_id !== user.id && <strong>{m.display_name} · </strong>}
-                  {fmtTime(m.created_at)}
+                  {m.role === 'admin' && <span className="badge badge-blue" style={{ padding: '0 6px', fontSize: '.68rem' }}>הנהלה</span>}
+                  {' '}{fmtTime(m.created_at)}
                 </div>
               )}
-              <div className="bubble">{renderBody(m.body)}</div>
+              <div className={`bubble ${m.recipient_id ? 'private' : ''}`}>
+                {m.recipient_id && <span title="הודעה פרטית">🔒 </span>}
+                {renderBody(m.body)}
+              </div>
             </div>
           )
         ))}
@@ -242,6 +251,18 @@ export default function Chat({ shutdownId, chatOpen, members = [] }) {
       )}
 
       <div className="typing">{typing ? `${typing} מקליד/ה...` : ''}</div>
+
+      {chatOpen && isManager && (
+        <div className="chat-recipient">
+          <span className="muted">שליחה אל:</span>
+          <select className="select" value={recipient} onChange={e => setRecipient(e.target.value)}>
+            <option value="">📢 כולם (הודעת מנהלה + מייל)</option>
+            {members.filter(m => m.id !== user.id).map(m => (
+              <option key={m.id} value={m.id}>🔒 פרטי: {m.display_name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {chatOpen ? (
         <form className="chat-input" onSubmit={send} style={{ position: 'relative' }}>
@@ -266,7 +287,7 @@ export default function Chat({ shutdownId, chatOpen, members = [] }) {
             value={text}
             onChange={onType}
             onBlur={() => setTimeout(() => setMentionOpen(false), 150)}
-            placeholder="כתיבת הודעה... (@ לאזכור)"
+            placeholder={recipient ? '🔒 הודעה פרטית...' : 'כתיבת הודעה... (@ לאזכור)'}
             maxLength={2000}
           />
           <button className="btn btn-primary" disabled={!text.trim() || !connected}>שליחה</button>
